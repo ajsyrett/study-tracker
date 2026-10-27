@@ -49,6 +49,13 @@ class Application(tk.Tk):
         self.tk.call("source", str(theme_path))
         ttk.Style(self).theme_use("forest-light")
 
+        style = ttk.Style(self)
+        style.configure(
+            "Debug.TFrame",
+            relief="solid",
+            borderwidth=1
+        )
+
         self.heading_font = tkfont.nametofont("TkDefaultFont").copy()
         self.heading_font.configure(size=12, weight="bold")
 
@@ -59,22 +66,41 @@ class Application(tk.Tk):
 
         self.today = datetime.today().strftime("%Y-%m-%d")
         self.title("Study Tracker")
-        self.geometry("500x500")
+        self.geometry("1200x800")
 
-        self.tasks = days_goals(self)
-        self.tasks.grid(row=0, column=0, sticky="nsew", padx=30, pady=30)
+        self.rowconfigure(0, weight=0)
+        self.columnconfigure(0, weight=2)
+        self.columnconfigure(1, weight=1)
 
-        stop_watch_and_task_adder = ttk.Frame(self)
-        stop_watch_and_task_adder.grid(row=0,column=1, padx=30, pady=30)
+        self.canvas_frame = ScrollableFrame(self)
+        self.canvas_frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=10,
+            pady=10
+        )
+        self.canvas_frame.columnconfigure(0, weight=1)
+
+        self.tasks = days_goals(self.canvas_frame.scrollable_frame, self)
+        self.tasks.grid(
+            row=0,
+            column=0,
+            sticky="new"
+        )
+
+        stop_watch_and_task_adder = ttk.Frame(self, style="Debug.TFrame")
+        stop_watch_and_task_adder.grid(row=0,column=1, padx=10, pady=10, sticky="wn")
+        stop_watch_and_task_adder.columnconfigure(0, weight=1)
 
         self.goal_page = plan_new_goals(stop_watch_and_task_adder, self)
-        self.goal_page.grid(row=0, column=0, padx=30, pady=30)
+        self.goal_page.grid(row=0, column=0, padx=10, pady=10)
 
         self.timer = timer(stop_watch_and_task_adder, self)
-        self.timer.grid(row=1, column=0, sticky="nsew", padx=30, pady=30)
+        self.timer.grid(row=1, column=0, sticky="nw", padx=10, pady=10)
 
         self.stats_page = visuals(self)
-        self.stats_page.grid(row=1, column=0, padx=30, pady=30, columnspan=2)
+        self.stats_page.grid(row=1, column=0, padx=10, pady=10, columnspan=2)
 
     def retrieve_records(self, date):
 
@@ -144,12 +170,13 @@ class Application(tk.Tk):
 
 class days_goals(ttk.Frame):
 
-    def __init__(self, parent):
+    def __init__(self, canvas, parent):
         super().__init__(
-            parent,
+            canvas,
             borderwidth=1,
             relief="solid",
-            padding=20,
+            padding=10,
+            style="Debug.TFrame"
         )
 
         self.parent = parent
@@ -158,19 +185,22 @@ class days_goals(ttk.Frame):
         self.days_subjects = defaultdict(list)
         self.subject_frames = {}
         self.check_boxes = {}
+        self.hours = {}
         self.minutes = {}
 
         # Let the task area expand with the frame.
         self.columnconfigure(0, weight=1)
 
-        self.header_frame = ttk.Frame(self)
+        self.header_frame = ttk.Frame(self, style="Debug.TFrame")
+        self.header_frame.columnconfigure(0, weight=1)
         self.header_frame.grid(
             row=0, column=0,
             sticky="nw",
             padx=(0, 20),
         )
 
-        self.calendar_frame = ttk.Frame(self)
+        self.calendar_frame = ttk.Frame(self, style="Debug.TFrame")
+        self.calendar_frame.columnconfigure(0, weight=1)
         self.calendar_frame.grid(
             row=0, column=1,
             sticky="ne",
@@ -183,7 +213,7 @@ class days_goals(ttk.Frame):
             pady=(16, 8),
         )
 
-        self.task_frame = ttk.Frame(self)
+        self.task_frame = ttk.Frame(self, style="Debug.TFrame")
         self.task_frame.grid(
             row=2, column=0,
             columnspan=2,
@@ -191,7 +221,7 @@ class days_goals(ttk.Frame):
         )
         self.task_frame.columnconfigure(0, weight=1)
 
-        self.save_frame = ttk.Frame(self)
+        self.save_frame = ttk.Frame(self, style="Debug.TFrame")
         self.save_frame.grid(
             row=3, column=0,
             columnspan=2,
@@ -261,6 +291,7 @@ class days_goals(ttk.Frame):
             subject_frame = ttk.Frame(
                 self.task_frame,
                 padding=(0, 10),
+                style="Debug.TFrame"
             )
             subject_frame.grid(
                 row=len(self.subject_frames),
@@ -293,19 +324,6 @@ class days_goals(ttk.Frame):
             pady=(0, 8),
         )
 
-        minutes_label = ttk.Label(
-            subject_frame,
-            text="Minutes",
-            width=10,
-            anchor="center",
-        )
-        minutes_label.grid(
-            row=0, column=1,
-            sticky="e",
-            padx=(20, 0),
-            pady=(0, 8),
-        )
-
     def check_box(self, task, row, subject_frame):
         task_id, task_name, _, completed_status = task
 
@@ -328,26 +346,50 @@ class days_goals(ttk.Frame):
     def task_time_to_complete(self, task, row, subject_frame):
         task_id, _, task_minutes, _ = task
 
-        self.minutes[task_id] = tk.StringVar(
-            self,
-            value=task_minutes,
-        )
+        hours, minutes = divmod(task_minutes, 60)
 
-        spin_box = ttk.Spinbox(
-            subject_frame,
-            from_=0,
-            to=1000,
-            width=8,
-            justify="center",
-            textvariable=self.minutes[task_id],
-            wrap=True,
-        )
-        spin_box.grid(
+        self.hours[task_id] = tk.StringVar(self, value=hours)
+        self.minutes[task_id] = tk.StringVar(self, value=minutes)
+
+        time_frame = ttk.Frame(subject_frame, style="Debug.TFrame")
+        time_frame.grid(
             row=row, column=1,
             sticky="e",
             padx=(20, 0),
-            pady=5,
+            pady=5
         )
+
+        hours_spinbox = ttk.Spinbox(
+            time_frame,
+            from_=0,
+            to=24,
+            width=4,
+            justify="center",
+            textvariable=self.hours[task_id],
+            wrap=True
+        )
+        hours_spinbox.grid(row=0, column=0)
+
+        ttk.Label(
+            time_frame,
+            text="hr"
+        ).grid(row=0, column=1, padx=(3, 10))
+
+        minutes_spinbox = ttk.Spinbox(
+            time_frame,
+            from_=0,
+            to=59,
+            width=4,
+            justify="center",
+            textvariable=self.minutes[task_id],
+            wrap=True
+        )
+        minutes_spinbox.grid(row=0, column=2)
+
+        ttk.Label(
+            time_frame,
+            text="min"
+        ).grid(row=0, column=3, padx=(3, 0))
 
     def register_todays_recurring_items(self, date):
         days_recurring_tasks = self.parent.retrieve_recurring_tasks(date)
@@ -413,135 +455,503 @@ class days_goals(ttk.Frame):
 class timer(ttk.Frame):
 
     def __init__(self, new_frame, parent):
-        super().__init__(new_frame, borderwidth=5, relief="ridge", padding=30)
-        self.sv = tk.StringVar()
+        super().__init__(
+            new_frame,
+            borderwidth=1,
+            relief="solid",
+            padding=10,
+            style="Debug.TFrame"
+        )
+
+        self.parent = parent
+        self.sv = tk.StringVar(value="00:00:00")
         self.start_time = None
         self.current_elapsed = None
+        self.after_job = None
         self.all_zeros = "00:00:00"
-        self.parent = parent
+
         self.make_widgets()
+
 
     def make_widgets(self):
 
-        ttk.Label(self, text = "Time A Task", font=self.parent.heading_font).grid(row=0,column=0)
-        ttk.Label(self, text = "Select Task", font=self.parent.heading_font).grid(row=0,column=1)        
+        # Allow center section to expand
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=1)
 
-        self.timer_display = ttk.Label(self, textvariable=self.sv, text=self.all_zeros)
-        self.timer_display.grid(row=1,column=0, columnspan=3)
+        # Header
+        ttk.Label(
+            self,
+            text="Time A Task",
+            font=self.parent.heading_font
+        ).grid(
+            row=0,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(0, 15)
+        )
 
-        ttk.Button(self, text='Start', command=self.start).grid(row=2, column=0, padx=5)
-        ttk.Button(self, text='Stop', command=self.stop).grid(row=2, column=1, padx=5)
-        ttk.Button(self, text='Finish', command=self.complete).grid(row=2, column=2, padx=5)
+        # Task selection
+        ttk.Label(
+            self,
+            text="Select Task"
+        ).grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(0, 15)
+        )
+
+        self.task_choice = tk.StringVar()
+
+        self.task_dropdown = ttk.Combobox(
+            self,
+            textvariable=self.task_choice,
+            state="readonly",
+            width=30
+        )
+
+        self.task_dropdown.grid(
+            row=1,
+            column=1,
+            columnspan=2,
+            sticky="ew",
+            pady=(0, 15)
+        )
+
+        # Timer
+        self.timer_display = ttk.Label(
+            self,
+            textvariable=self.sv,
+            font=("Arial", 32, "bold"),
+            anchor="center"
+        )
+
+        self.timer_display.grid(
+            row=2,
+            column=0,
+            columnspan=3,
+            sticky="ew",
+            pady=(10, 20)
+        )
+
+        # Buttons
+        ttk.Button(
+            self,
+            text="Start",
+            command=self.start
+        ).grid(
+            row=3,
+            column=0,
+            padx=(0, 5),
+            sticky="ew"
+        )
+
+        ttk.Button(
+            self,
+            text="Stop",
+            command=self.stop
+        ).grid(
+            row=3,
+            column=1,
+            padx=5,
+            sticky="ew"
+        )
+
+        ttk.Button(
+            self,
+            text="Finish",
+            command=self.complete
+        ).grid(
+            row=3,
+            column=2,
+            padx=(5, 0),
+            sticky="ew"
+        )
+
 
     def timer(self):
+        self.sv.set(
+            self.format_time(time.time() - self.start_time)
+        )
 
-        self.sv.set(self.format_time(time.time() - self.start_time))
-        self.after_job = self.timer_display.after(30, self.timer)
+        self.after_job = self.after(
+            30,
+            self.timer
+        )
+
 
     def start(self):
+        if self.after_job is not None:
+            return
 
         self.start_time = time.time()
+
         if self.current_elapsed is not None:
             self.start_time -= self.current_elapsed
+
         self.timer()
 
-    def stop(self):
 
-        self.timer_display.after_cancel(self.after_job)
+    def stop(self):
+        if self.after_job is None:
+            return
+
+        self.after_cancel(self.after_job)
+        self.after_job = None
+
         self.current_elapsed = time.time() - self.start_time
 
-    def complete(self):
 
-        self.timer_display.after_cancel(self.after_job)
+    def complete(self):
+        if self.after_job is not None:
+            self.after_cancel(self.after_job)
+
+        self.after_job = None
+        self.start_time = None
+        self.current_elapsed = None
+
         self.sv.set(self.all_zeros)
-        self.current_elapsed=None
+
 
     @staticmethod
-
     def format_time(elap):
         hours = int(elap / 3600)
-        minutes = int(elap / 60 - hours * 60.0)
-        seconds = int(elap - hours * 3600.0 - minutes * 60.0)
-        return '%02d:%02d:%02d' % (hours, minutes, seconds)
+        minutes = int(elap / 60 - hours * 60)
+        seconds = int(elap - hours * 3600 - minutes * 60)
+
+        return "%02d:%02d:%02d" % (
+            hours,
+            minutes,
+            seconds
+        )
 
 class plan_new_goals(ttk.Frame):
 
     def __init__(self, new_frame, parent):
-        super().__init__(new_frame)
+        super().__init__(
+            new_frame,
+            padding=10,
+            relief="solid",
+            borderwidth=1,
+            style="Debug.TFrame"
+        )
 
         self.parent = parent
         self.tasks = parent.tasks
-        subject_label = ttk.Label(self, text="Subject", font=self.parent.heading_font)
-        subject_label.grid(row=0, column=0)
+        self.day_choice = None
+
+        for column in range(4):
+            self.columnconfigure(column, weight=1)
+
+        # Subject
+        ttk.Label(
+            self,
+            text="Subject",
+            font=self.parent.heading_font
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            padx=(0, 10),
+            pady=(0, 5)
+        )
 
         self.subject = ttk.Entry(self)
-        self.subject.grid(row=1, column=0, padx=30, pady=30)
+        self.subject.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=(0, 10)
+        )
 
-        task_label = ttk.Label(self, text="Task Name", font=self.parent.heading_font)
-        task_label.grid(row=0, column=1)
+        # Task
+        ttk.Label(
+            self,
+            text="Task Name",
+            font=self.parent.heading_font
+        ).grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=10,
+            pady=(0, 5)
+        )
 
         self.task_name = ttk.Entry(self)
-        self.task_name.grid(row=1, column=1, padx=30, pady=30)
+        self.task_name.grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=10
+        )
 
-        frequency_label = ttk.Label(self, text="Task Frequency", font=self.parent.heading_font)
-        frequency_label.grid(row=0, column=2)
-        self.frequency_choice = tk.StringVar(self, value="One Off")
-        self.day_choice=None
+        # Frequency
+        ttk.Label(
+            self,
+            text="Task Frequency",
+            font=self.parent.heading_font
+        ).grid(
+            row=0,
+            column=2,
+            sticky="w",
+            padx=10,
+            pady=(0, 5)
+        )
 
-        dropdown = ttk.Combobox(
+        self.frequency_choice = tk.StringVar(
+            self,
+            value="One Off"
+        )
+
+        self.frequency_dropdown = ttk.Combobox(
             self,
             textvariable=self.frequency_choice,
             values=["One Off", "Daily", "Weekly"],
             state="readonly"
         )
-        dropdown.grid(row=1, column=2)
 
+        self.frequency_dropdown.grid(
+            row=1,
+            column=2,
+            sticky="ew",
+            padx=10
+        )
+
+        # Date / Day
         self.create_date_selection("Choose Date")
-        dropdown.bind("<<ComboboxSelected>>", self.frequency_adjustment)
-        button = ttk.Button(self, text="Submit", command=self.submit_new_record)
-        button.grid(row=2, column=0, columnspan=4, pady=10)
+
+        self.frequency_dropdown.bind(
+            "<<ComboboxSelected>>",
+            self.frequency_adjustment
+        )
+
+        # Submit
+        button = ttk.Button(
+            self,
+            text="Add Task",
+            command=self.submit_new_record
+        )
+
+        button.grid(
+            row=2,
+            column=3,
+            sticky="e",
+            pady=(20, 0)
+        )
+
 
     def create_date_selection(self, label_text):
-        self.day_choice=None
-        self.date_label = ttk.Label(self,text=label_text,font=self.parent.heading_font)
-        self.date_label.grid(row=0, column=3)
-        self.calendar = DateEntry(self,width=12,date_pattern="yyyy-mm-dd")
-        self.calendar.grid(row=1,column=3,padx=30,pady=30)    
+        self.day_choice = None
 
-    def frequency_adjustment(self, event):
+        self.date_label = ttk.Label(
+            self,
+            text=label_text,
+            font=self.parent.heading_font
+        )
 
+        self.date_label.grid(
+            row=0,
+            column=3,
+            sticky="w",
+            padx=(10, 0),
+            pady=(0, 5)
+        )
+
+        self.calendar = DateEntry(
+            self,
+            date_pattern="yyyy-mm-dd"
+        )
+
+        self.calendar.grid(
+            row=1,
+            column=3,
+            sticky="ew",
+            padx=(10, 0)
+        )
+
+
+    def frequency_adjustment(self, event=None):
         self.date_label.destroy()
         self.calendar.destroy()
 
-        if self.frequency_choice.get() == "One Off":
-            self.create_date_selection("Choose Starting Date")
-        elif self.frequency_choice.get() == "Daily":
+        frequency = self.frequency_choice.get()
+
+        if frequency == "One Off":
             self.create_date_selection("Choose Date")
+
+        elif frequency == "Daily":
+            self.create_date_selection("Choose Starting Date")
+
         else:
-            self.date_label = ttk.Label(self, text="Choose Day", font=self.parent.heading_font)
-            self.date_label.grid(row=0, column=3)
-            self.day_choice = tk.StringVar(self, value="Friday")
+            self.date_label = ttk.Label(
+                self,
+                text="Choose Day",
+                font=self.parent.heading_font
+            )
+
+            self.date_label.grid(
+                row=0,
+                column=3,
+                sticky="w",
+                padx=(10, 0),
+                pady=(0, 5)
+            )
+
+            self.day_choice = tk.StringVar(
+                self,
+                value="Friday"
+            )
+
             self.calendar = ttk.Combobox(
                 self,
                 textvariable=self.day_choice,
-                values=["Monday", "Tuesday", "Wednesday","Thursday","Friday","Saturday","Sunday"],
+                values=[
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday",
+                    "Saturday",
+                    "Sunday"
+                ],
                 state="readonly"
             )
-            self.calendar.grid(row=1, column=3, padx=30, pady=30)
+
+            self.calendar.grid(
+                row=1,
+                column=3,
+                sticky="ew",
+                padx=(10, 0)
+            )
+
 
     def submit_new_record(self):
-        if self.frequency_choice.get() == "One Off":
-            self.parent.insert_record(self.calendar.get(), self.subject.get(), self.task_name.get())
-            return
-        if self.day_choice is not None:
-            day=self.day_choice.get()
-        else:
-            day=None
-        self.parent.insert_recurring_task(self.subject.get(), self.task_name.get(), self.frequency_choice.get(), day=day)
+        try:
+            subject = self.subject.get()
+            task = self.task_name.get()
+            frequency = self.frequency_choice.get()
 
-class visuals(ttk.Frame):
+            if frequency == "One Off":
+                self.parent.insert_record(
+                    self.calendar.get(),
+                    subject,
+                    task
+                )
+                return
+
+            if self.day_choice is not None:
+                day = self.day_choice.get()
+            else:
+                day = None
+
+            self.parent.insert_recurring_task(
+                subject,
+                task,
+                frequency,
+                day=day
+            )
+
+        finally:
+            self.tasks.check_for_new_records()
+
+class ScrollableFrame(ttk.Frame):
+
     def __init__(self, parent):
-        super().__init__(parent)
+        super().__init__(parent, style="Debug.TFrame")
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(
+            self,
+            highlightthickness=1,
+            highlightbackground="red"
+        )
+
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.canvas.yview
+        )
+
+        self.scrollable_frame = ttk.Frame(
+            self.canvas,
+            style="Debug.TFrame"
+        )
+        self.scrollable_frame.columnconfigure(0,weight=1)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda event: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas_window = self.canvas.create_window(
+            (0, 0),
+            window=self.scrollable_frame,
+            anchor="nw"
+        )
+
+        self.canvas.configure(
+            yscrollcommand=self.scrollbar.set
+        )
+
+        self.canvas.bind(
+            "<Configure>",
+            self.resize_frame
+        )
+
+        self.canvas.grid(
+            row=0,
+            column=0,
+            sticky="nsew"
+        )
+
+        self.scrollbar.grid(
+            row=0,
+            column=1,
+            sticky="ns"
+        )
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+
+    def resize_frame(self, event):
+        self.canvas.itemconfigure(
+            self.canvas_window,
+            width=event.width
+        )
+
+class StatCard(ttk.Frame):
+
+    def __init__(self, parent, title, value, subtitle=None):
+        super().__init__(parent, padding=15, relief="solid", borderwidth=1)
+
+        ttk.Label(
+            self,
+            text=title.upper()
+        ).pack(anchor="w")
+
+        ttk.Label(
+            self,
+            text=value,
+            font=("Arial", 18, "bold")
+        ).pack(anchor="w", pady=(8, 0))
+
+        if subtitle:
+            ttk.Label(
+                self,
+                text=subtitle
+            ).pack(anchor="w")
+
+class analytics(ttk.Frame):
+    def __init__(self, parent):
+        super().__init__(parent, style="Debug.TFrame")
         # self.label = ttk.Label(self, text="Track Progress")
         # self.label.grid(row=0, column=0)
     
