@@ -118,19 +118,20 @@ class Application(tk.Tk):
         self.load_data()
         print(self.df)
 
-        self.visuals_tab = visuals(self.notebook, self.df)
-        self.analytics_tab = ttk.Frame(self.notebook)
+        self.visuals_tab = Visuals(self.notebook, self, self.df)
+        self.analytics_tab = Analytics(self.notebook, self)
 
         self.notebook.add(self.analytics_tab, text="Analytics")
         self.notebook.add(self.visuals_tab, text="Visuals")
 
+        self.bottom_panel_dates = date_range_update(stop_watch_and_task_adder, self)
+        self.bottom_panel_dates.grid(row=2, column=0, sticky='ws')
+
         today = pd.Timestamp.today().normalize()
         dates = (today - pd.Timedelta(days=6), today)
         subjects = self.df['subject'].dropna().unique().tolist()
-
         dates = ('2026-09-01', '2026-10-31')
         subjects = self.df['subject'].dropna().unique().tolist()
-
         self.visuals_tab.plot_study(dates, subjects)
 
     def load_data(self):
@@ -210,7 +211,6 @@ class Application(tk.Tk):
         return self.conn.execute(query, parameters).fetchall()
 
 class days_goals(ttk.Frame):
-
     def __init__(self, canvas, parent):
         super().__init__(
             canvas,
@@ -670,7 +670,6 @@ class timer(ttk.Frame):
         )
 
 class plan_new_goals(ttk.Frame):
-
     def __init__(self, new_frame, parent):
         super().__init__(
             new_frame,
@@ -990,8 +989,8 @@ class StatCard(ttk.Frame):
                 text=subtitle
             ).pack(anchor="w")
 
-class visuals(ttk.Frame):
-    def __init__(self, parent, df):
+class Visuals(ttk.Frame):
+    def __init__(self, notebook, parent, df):
         super().__init__(parent, style="Debug.TFrame")
 
         self.parent = parent
@@ -1044,7 +1043,7 @@ class visuals(ttk.Frame):
                 .tolist()
         )
 
-    def plot_study(self, dates, subjects, total=False):
+    def plot_study(self, dates, total=False):
         start, end = [pd.Timestamp(date).normalize() for date in dates]
         dates = (start, end)
 
@@ -1059,6 +1058,8 @@ class visuals(ttk.Frame):
                 sunday.rollforward(end),
                 freq='W',
             )
+
+        subjects = self.df['subject'].dropna().unique().tolist()
 
         selected = self.df.loc[self.df['subject'].isin(subjects)]
         grouped = self.filter_and_group(selected, dates, freq)
@@ -1118,31 +1119,29 @@ class visuals(ttk.Frame):
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill='both', expand=True)
-
-class analytics(ttk.Frame):
-    def __init__(self, parent):
+      
+class Analytics(ttk.Frame):
+    def __init__(self, notebook, parent):
         super().__init__(parent, style="Debug.TFrame")
 
-    def get_cards():
+        self.parent = parent
+
+    def get_cards(self):
 
         cards = [
-        self.get_today_study_time(),
-        self.tasks_completed(),
-        self.study_days(),
-        self.most_studied(),
-        self.most_consistent(),
-        self.most_skipped(),
-    ]
+            self.get_total_study_time(),
+            self.tasks_completed(),
+            self.study_days(),
+            self.most_studied(),
+            self.most_consistent(),
+            self.most_skipped(),
+        ]
 
         for i, (title, value, subtitle) in enumerate(cards):
             row, column = divmod(i, 3)
 
-            StatCard(
-                self,
-                title=title,
-                value=value,
-                subtitle=subtitle,
-            ).grid(
+            StatCard(self,title,value,subtitle)\
+            .grid(
                 row=row,
                 column=column,
                 sticky="nsew",
@@ -1150,25 +1149,26 @@ class analytics(ttk.Frame):
                 pady=6,
             )
 
-    def format_minutes(self):
+    def filter_dates(self, start, end):
+        self.df_filt = self.parent.df.query('date >= @start and date <= @end')
+
+    def format_minutes(self, minutes):
         hours, minutes = divmod(int(minutes), 60)
         return f"{hours}h {minutes:02d}m"
 
-
-    def get_today_study_time(self):
-        total_time = data["minutes"].sum()
-        subjects = data.loc[data["minutes"] > 0, "subject"].nunique()
+    def get_total_study_time(self):
+        total_time = self.df_filt["minutes"].sum()
+        subjects = self.df_filt.loc[self.df_filt["minutes"] > 0, "subject"].nunique()
 
         return (
             "Total study time",
-            format_minutes(total_time),
+            self.format_minutes(total_time),
             f"Across {subjects} subjects",
         )
 
-
     def tasks_completed(self):
-        total_tasks = len(data)
-        completed = int(data["completed"].eq(1).sum())
+        total_tasks = len(self.df_filt)
+        completed = int(self.df_filt["completed"].eq(1).sum())
         rate = completed / total_tasks if total_tasks else 0
 
         return (
@@ -1177,30 +1177,19 @@ class analytics(ttk.Frame):
             f"{rate:.0%} completion",
         )
 
-
     def study_days(self):
-        days = data.loc[data["minutes"] > 0, "date"].nunique()
-
-        # Don't include future days in the denominator.
-        last_day = min(
-            pd.Timestamp(end),
-            pd.Timestamp.today().normalize(),
-        )
-        possible_days = max(
-            (last_day - pd.Timestamp(start)).days + 1,
-            0,
-        )
+        days = self.df_filt.loc[self.df_filt["minutes"] > 0, "date"].nunique()
 
         return (
             "Study days",
-            f"{days} of {possible_days}",
+            f"{days} of {6}",
             "Days with time recorded",
         )
 
-
     def most_studied(self):
-        totals = data.groupby("subject")["minutes"].sum()
-        total_time = totals.sum()
+        totals = self.df_filt.groupby("subject")["minutes"].sum()
+        total_time = totals['minutes'].sum()
+        print(total_time)
 
         if totals.empty or total_time == 0:
             return ("Most studied", "—", "No study time recorded")
@@ -1212,14 +1201,14 @@ class analytics(ttk.Frame):
         return (
             "Most studied",
             subject,
-            f"{format_minutes(minutes)} · {share:.0%} of study time",
+            f"{self.format_minutes(minutes)} · {share:.0%} of study time",
         )
 
 
     def past_task_summary(self):
-        today = pd.Timestamp.today().normalize()
+        today = self.today().normalize()
 
-        past = data.loc[pd.to_datetime(data["date"]) < today]
+        past = self.df_filt.loc[pd.to_datetime(data["date"]) < today]
 
         return past.groupby("subject").agg(
             total_tasks=("completed", "size"),
@@ -1229,7 +1218,7 @@ class analytics(ttk.Frame):
 
 
     def most_consistent(self):
-        summary = past_task_summary(data)
+        summary = past_task_summary(self.df_filt)
 
         if summary.empty:
             return ("Most consistent", "—", "No past tasks")
@@ -1244,9 +1233,8 @@ class analytics(ttk.Frame):
             f"of {int(result['total_tasks'])} past tasks",
         )
 
-
     def most_skipped(self):
-        summary = past_task_summary(data)
+        summary = past_task_summary(self.df_filt)
 
         if summary.empty:
             return ("Most skipped", "—", "No past tasks")
@@ -1267,6 +1255,66 @@ class analytics(ttk.Frame):
             f"Skipped {int(result['skipped'])} "
             f"of {int(result['total_tasks'])} past tasks",
         )
+
+class date_range_update(ttk.Frame):
+    def __init__(self, new_frame, parent):
+        super().__init__(
+            new_frame,
+            borderwidth=1,
+            relief="solid",
+            padding=10,
+            style="Debug.TFrame"
+        )
+
+        self.parent = parent
+
+        date_choice_label = ttk.Label(
+            self,
+            text="Choose Date Range",
+            font=self.parent.heading_font,
+        )
+        date_choice_label.grid(row=0, column=0)
+
+        self.date_option = tk.StringVar()
+        self.date_dropdown = ttk.Combobox(
+            self,
+            textvariable=self.date_option,
+            values=["Last Week", "Last Month", "Last Year", "Custom Range"],
+            state="readonly"
+        )
+        self.date_dropdown.grid(row=1, column=0, padx=5)
+
+        # self.date_dropdown.bind(
+        #     "<<ComboboxSelected>>",
+        #     lambda: self.update_tabs()
+        # )
+
+        self.start = "2026-10-18"
+        self.end = "2026-11-01"
+
+        self.update_tabs()
+
+    def get_start_and_end_dates(self):
+
+        choice = self.date_option.get()
+
+        if choice == 'Last Week':
+            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            self.start = (datetime.today() - timedelta(days=8)).strftime("%Y-%m-%d")
+
+        elif choice == 'Last Month':
+            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            self.start = (datetime.today() - timedelta(days=31)).strftime("%Y-%m-%d")
+
+        elif choice == 'Last Year':
+            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            self.start = (datetime.today() - timedelta(days=366)).strftime("%Y-%m-%d")
+
+    def update_tabs(self):
+        self.get_start_and_end_dates()
+        self.parent.analytics_tab.filter_dates(self.start, self.end)
+        self.parent.analytics_tab.get_cards()
+        self.parent.visuals_tab.plot_study((self.start, self.end))
     
 if __name__ == "__main__":
     main()
