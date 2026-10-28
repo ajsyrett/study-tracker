@@ -51,6 +51,13 @@ dummy_data = [
     ("2026-11-01", "SQL", "Review database queries", 0, 0),
 ]
 
+conn.executemany("""
+    INSERT INTO sessions (date, subject, task, minutes, completed)
+    VALUES (?, ?, ?, ?, ?)
+""", dummy_data)
+
+conn.commit()
+
 rows = conn.execute("""SELECT * FROM sessions""").fetchall()
 
 for row in rows:
