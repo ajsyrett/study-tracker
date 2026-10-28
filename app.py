@@ -1,13 +1,16 @@
 import tkinter as tk
 from tkinter import ttk
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 import time
 from pathlib import Path
 from tkinter import font as tkfont
 from tkcalendar import DateEntry
-# import pandas as pd
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 def main():
     app = Application()
@@ -99,8 +102,46 @@ class Application(tk.Tk):
         self.timer = timer(stop_watch_and_task_adder, self)
         self.timer.grid(row=1, column=0, sticky="nw", padx=10, pady=10)
 
-        self.stats_page = visuals(self)
-        self.stats_page.grid(row=1, column=0, padx=10, pady=10, columnspan=2)
+        self.rowconfigure(1, weight=1)
+
+        self.notebook = ttk.Notebook(self)
+        self.notebook.grid(
+            row=1,
+            column=0,
+            columnspan=2,
+            sticky="nsew",
+            padx=10,
+            pady=10,
+        )
+
+        # Empty tabs until you create their classes.
+        self.load_data()
+        print(self.df)
+
+        self.visuals_tab = visuals(self.notebook, self.df)
+        self.analytics_tab = ttk.Frame(self.notebook)
+
+        self.notebook.add(self.analytics_tab, text="Analytics")
+        self.notebook.add(self.visuals_tab, text="Visuals")
+
+        today = pd.Timestamp.today().normalize()
+        dates = (today - pd.Timedelta(days=6), today)
+        subjects = self.df['subject'].dropna().unique().tolist()
+
+        dates = ('2026-09-01', '2026-10-31')
+        subjects = self.df['subject'].dropna().unique().tolist()
+
+        self.visuals_tab.plot_study(dates, subjects)
+
+    def load_data(self):
+       rows = self.conn.execute("SELECT * FROM sessions").fetchall()
+       self.df = pd.DataFrame([dict(row) for row in rows])
+
+    def change_stats_period(self, event=None):
+        period = self.stats_period.get()
+
+        self.statistics_tab.set_period(period)
+        self.visuals_tab.set_period(period)
 
     def retrieve_records(self, date):
 
@@ -949,11 +990,283 @@ class StatCard(ttk.Frame):
                 text=subtitle
             ).pack(anchor="w")
 
+class visuals(ttk.Frame):
+    def __init__(self, parent, df):
+        super().__init__(parent, style="Debug.TFrame")
+
+        self.parent = parent
+        self.df = df
+        self.today = datetime.today()
+
+        self.canvas = None
+        self.fig = None
+
+    def filter_and_group(self, data, dates, freq='daily'):
+        start, end = map(pd.Timestamp, dates)
+
+        data = data.copy()
+        data['date'] = pd.to_datetime(data['date']).dt.normalize()
+
+        frequency = {'daily': 'D', 'weekly': 'W'}[freq]
+
+        return (
+            data.loc[data['date'].between(start, end)]
+                .groupby([
+                    pd.Grouper(key='date', freq=frequency),
+                    'subject',
+                ])[['minutes']]
+                .sum()
+                .reset_index()
+                .sort_values('date')
+        )
+
+    def clean_data(self, data, dates, freq='daily', subject=None):
+        start, end = map(pd.Timestamp, dates)
+
+        offset = {
+            'daily': pd.offsets.Day(),
+            'weekly': pd.offsets.Week(weekday=6),
+        }[freq]
+
+        period_dates = pd.date_range(
+            offset.rollforward(start),
+            offset.rollforward(end),
+            freq=offset,
+        )
+
+        if subject is not None:
+            data = data.loc[data['subject'].eq(subject)]
+
+        return (
+            data.groupby('date')['minutes']
+                .sum()
+                .reindex(period_dates, fill_value=0)
+                .tolist()
+        )
+
+    def plot_study(self, dates, subjects, total=False):
+        start, end = [pd.Timestamp(date).normalize() for date in dates]
+        dates = (start, end)
+
+        if end <= start + pd.DateOffset(months=1):
+            freq = 'daily'
+            plot_dates = pd.date_range(start, end, freq='D')
+        else:
+            freq = 'weekly'
+            sunday = pd.offsets.Week(weekday=6)
+            plot_dates = pd.date_range(
+                sunday.rollforward(start),
+                sunday.rollforward(end),
+                freq='W',
+            )
+
+        selected = self.df.loc[self.df['subject'].isin(subjects)]
+        grouped = self.filter_and_group(selected, dates, freq)
+
+        # Remove the previous chart.
+        if self.canvas is not None:
+            self.canvas.get_tk_widget().destroy()
+            plt.close(self.fig)
+
+        plt.style.use('ggplot')
+        self.fig, ax = plt.subplots(figsize=(8, 5))
+        ax.set_facecolor("#F1F4EE")
+
+        cmap = plt.get_cmap('Blues')
+        colors = cmap(np.linspace(0.4, 0.9, len(subjects)))
+        bottom = np.zeros(len(plot_dates))
+
+        plot_subjects = [None] if total else subjects
+
+        for i, subject in enumerate(plot_subjects):
+            minutes = np.array(
+                self.clean_data(grouped, dates, freq, subject)
+            )
+            label = 'Total' if total else subject
+            color = cmap(0.8) if total else colors[i]
+
+            if freq == 'daily':
+                ax.bar(
+                    plot_dates,
+                    minutes,
+                    bottom=bottom,
+                    label=label,
+                    color=color,
+                )
+                bottom += minutes
+            else:
+                ax.plot(
+                    plot_dates,
+                    minutes,
+                    label=label,
+                    color=color,
+                    marker='o',
+                )
+
+        ax.set_ylabel('Minutes')
+        ax.set_title(
+            f"{'Daily' if freq == 'daily' else 'Weekly'} Study Time"
+        )
+
+        if plot_subjects:
+            ax.legend(frameon=False)
+
+        self.fig.autofmt_xdate()
+        self.fig.tight_layout()
+
+        # Display the figure inside this frame.
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().pack(fill='both', expand=True)
+
 class analytics(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent, style="Debug.TFrame")
-        # self.label = ttk.Label(self, text="Track Progress")
-        # self.label.grid(row=0, column=0)
+
+    def get_cards():
+
+        cards = [
+        self.get_today_study_time(),
+        self.tasks_completed(),
+        self.study_days(),
+        self.most_studied(),
+        self.most_consistent(),
+        self.most_skipped(),
+    ]
+
+        for i, (title, value, subtitle) in enumerate(cards):
+            row, column = divmod(i, 3)
+
+            StatCard(
+                self,
+                title=title,
+                value=value,
+                subtitle=subtitle,
+            ).grid(
+                row=row,
+                column=column,
+                sticky="nsew",
+                padx=6,
+                pady=6,
+            )
+
+    def format_minutes(self):
+        hours, minutes = divmod(int(minutes), 60)
+        return f"{hours}h {minutes:02d}m"
+
+
+    def get_today_study_time(self):
+        total_time = data["minutes"].sum()
+        subjects = data.loc[data["minutes"] > 0, "subject"].nunique()
+
+        return (
+            "Total study time",
+            format_minutes(total_time),
+            f"Across {subjects} subjects",
+        )
+
+
+    def tasks_completed(self):
+        total_tasks = len(data)
+        completed = int(data["completed"].eq(1).sum())
+        rate = completed / total_tasks if total_tasks else 0
+
+        return (
+            "Tasks completed",
+            f"{completed} of {total_tasks}",
+            f"{rate:.0%} completion",
+        )
+
+
+    def study_days(self):
+        days = data.loc[data["minutes"] > 0, "date"].nunique()
+
+        # Don't include future days in the denominator.
+        last_day = min(
+            pd.Timestamp(end),
+            pd.Timestamp.today().normalize(),
+        )
+        possible_days = max(
+            (last_day - pd.Timestamp(start)).days + 1,
+            0,
+        )
+
+        return (
+            "Study days",
+            f"{days} of {possible_days}",
+            "Days with time recorded",
+        )
+
+
+    def most_studied(self):
+        totals = data.groupby("subject")["minutes"].sum()
+        total_time = totals.sum()
+
+        if totals.empty or total_time == 0:
+            return ("Most studied", "—", "No study time recorded")
+
+        subject = totals.idxmax()
+        minutes = totals.loc[subject]
+        share = minutes / total_time
+
+        return (
+            "Most studied",
+            subject,
+            f"{format_minutes(minutes)} · {share:.0%} of study time",
+        )
+
+
+    def past_task_summary(self):
+        today = pd.Timestamp.today().normalize()
+
+        past = data.loc[pd.to_datetime(data["date"]) < today]
+
+        return past.groupby("subject").agg(
+            total_tasks=("completed", "size"),
+            total_completed=("completed", "sum"),
+            completion_rate=("completed", "mean"),
+        )
+
+
+    def most_consistent(self):
+        summary = past_task_summary(data)
+
+        if summary.empty:
+            return ("Most consistent", "—", "No past tasks")
+
+        subject = summary["completion_rate"].idxmax()
+        result = summary.loc[subject]
+
+        return (
+            "Most consistent",
+            subject,
+            f"Completed {int(result['total_completed'])} "
+            f"of {int(result['total_tasks'])} past tasks",
+        )
+
+
+    def most_skipped(self):
+        summary = past_task_summary(data)
+
+        if summary.empty:
+            return ("Most skipped", "—", "No past tasks")
+
+        summary["skipped"] = (
+            summary["total_tasks"] - summary["total_completed"]
+        )
+
+        if summary["skipped"].sum() == 0:
+            return ("Most skipped", "None", "No past tasks skipped")
+
+        subject = summary["completion_rate"].idxmin()
+        result = summary.loc[subject]
+
+        return (
+            "Most skipped",
+            subject,
+            f"Skipped {int(result['skipped'])} "
+            f"of {int(result['total_tasks'])} past tasks",
+        )
     
 if __name__ == "__main__":
     main()
