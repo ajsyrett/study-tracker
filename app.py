@@ -15,33 +15,117 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # Appearance only: configured once when the app opens.
 UI_COLORS = {
-    "page": "#F3F6FB", "surface": "#FFFFFF", "text": "#203047",
-    "muted": "#687990", "accent": "#0078D4", "border": "#DFE7F1",
+    "page": "#F3F6FB",
+    "surface": "#FFFFFF",
+    "text": "#203047",
+    "muted": "#687990",
+    "accent": "#0078D4",
+    "border": "#DFE7F1",
+    "danger": "#DC2626",
 }
 CHART_COLORS = ("#0078D4", "#249D97", "#8073CA", "#D69A38",
                 "#D56F89", "#517798", "#77A44C", "#A47850")
 
 
 def configure_appearance(root):
-    # Reuse Tk's platform font; no installed-font scan or new dependency.
     family = tkfont.nametofont("TkDefaultFont").actual("family")
     root.ui_font = family
     root.configure(background=UI_COLORS["page"])
+
     style = ttk.Style(root)
-    style.configure("TFrame", background=UI_COLORS["surface"])
-    style.configure("Card.TFrame", background=UI_COLORS["surface"], borderwidth=0, relief="flat")
-    style.configure("Page.TFrame", background=UI_COLORS["page"])
-    style.configure("TLabel", font=(family, 10), foreground=UI_COLORS["text"], background=UI_COLORS["surface"])
-    style.configure("Muted.TLabel", foreground=UI_COLORS["muted"], font=(family, 9))
-    style.configure("Subject.TLabel", foreground=UI_COLORS["accent"], font=(family, 12, "bold"))
-    style.configure("Metric.TLabel", foreground=UI_COLORS["accent"], font=(family, 23, "bold"))
-    style.configure("Timer.TLabel", foreground=UI_COLORS["accent"], font=(family, 34, "bold"))
-    style.configure("TCheckbutton", font=(family, 10), background=UI_COLORS["surface"])
-    style.configure("TButton", font=(family, 10), padding=(12, 7))
-    style.configure("Accent.TButton", font=(family, 10, "bold"), padding=(14, 8))
-    style.configure("TNotebook", background=UI_COLORS["page"], borderwidth=0)
-    style.configure("TNotebook.Tab", font=(family, 10), padding=(18, 9))
-    # Set chart defaults once, rather than applying a style on every plot.
+
+    # Frames
+    style.configure(
+        "Page.TFrame",
+        background=UI_COLORS["page"],
+    )
+    style.configure(
+        "Card.TFrame",
+        background=UI_COLORS["surface"],
+        borderwidth=0,
+        relief="flat",
+    )
+    style.configure(
+        "StatCard.TFrame",
+        background=UI_COLORS["surface"],
+        borderwidth=1,
+        relief="solid",
+    )
+
+    # Labels
+    style.configure(
+        "TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["text"],
+        font=(family, 10),
+    )
+    style.configure(
+        "Heading.TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["text"],
+        font=(family, 12, "bold"),
+    )
+    style.configure(
+        "Muted.TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["muted"],
+        font=(family, 9),
+    )
+    style.configure(
+        "Subject.TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["accent"],
+        font=(family, 11, "bold"),
+    )
+    style.configure(
+        "Metric.TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["text"],
+        font=(family, 22, "bold"),
+    )
+    style.configure(
+        "Timer.TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["accent"],
+        font=(family, 40, "bold"),
+    )
+    style.configure(
+        "Error.TLabel",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["danger"],
+        font=(family, 9),
+    )
+
+    # Controls
+    style.configure(
+        "TCheckbutton",
+        background=UI_COLORS["surface"],
+        font=(family, 10),
+    )
+    style.configure(
+        "TButton",
+        font=(family, 10),
+        padding=(12, 7),
+    )
+    style.configure(
+        "Accent.TButton",
+        font=(family, 10, "bold"),
+        padding=(14, 8),
+    )
+
+    # Notebook
+    style.configure(
+        "TNotebook",
+        background=UI_COLORS["page"],
+        borderwidth=0,
+    )
+    style.configure(
+        "TNotebook.Tab",
+        font=(family, 10),
+        padding=(18, 9),
+    )
+
+    # Charts
     plt.rcParams.update({
         "font.family": "sans-serif",
         "font.sans-serif": [family, "DejaVu Sans"],
@@ -53,11 +137,14 @@ def configure_appearance(root):
         "axes.edgecolor": UI_COLORS["border"],
         "xtick.color": UI_COLORS["muted"],
         "ytick.color": UI_COLORS["muted"],
-        "axes.titlesize": 14, "axes.titleweight": "bold",
-        "axes.spines.top": False, "axes.spines.right": False,
+        "axes.titlesize": 14,
+        "axes.titleweight": "bold",
+        "axes.spines.top": False,
+        "axes.spines.right": False,
         "axes.spines.left": False,
         "axes.axisbelow": True,
-        "grid.color": UI_COLORS["border"], "grid.linewidth": 0.7,
+        "grid.color": UI_COLORS["border"],
+        "grid.linewidth": 0.7,
     })
 
 
@@ -92,19 +179,7 @@ class Application(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        theme_path = (
-            Path(__file__).parent
-            / "Azure-ttk-theme-main"
-            / "azure.tcl"
-        )
-
-        self.tk.call("source", str(theme_path))
-        self.tk.call("set_theme", "light")
-
         configure_appearance(self)
-
-        self.heading_font = tkfont.nametofont("TkDefaultFont").copy()
-        self.heading_font.configure(size=12, weight="bold")
 
         self.conn = sqlite3.connect("study_tracker.db")
         self.conn.row_factory = sqlite3.Row
@@ -114,10 +189,6 @@ class Application(tk.Tk):
         self.today = datetime.today().strftime("%Y-%m-%d")
         self.title("Study Tracker")
         self.geometry("1280x850")
-
-        self.rowconfigure(0, weight=0)
-        self.columnconfigure(0, weight=2)
-        self.columnconfigure(1, weight=1)
 
         # setting up canvas frame that will contain scroll bar so we can scroll through
         # daily tasks when the list gets too long 
@@ -129,7 +200,6 @@ class Application(tk.Tk):
             padx=10,
             pady=10
         )
-        self.canvas_frame.columnconfigure(0, weight=1)
 
         # we create the task frame now inside the scrollable bar frame
         # the scrollable bar frame is created in the ScrollableFrame class 
@@ -156,8 +226,6 @@ class Application(tk.Tk):
         self.timer = Timer(stop_watch_and_task_adder, self)
         self.timer.grid(row=1, column=0, sticky="ew", pady=(0, 12))
 
-        self.rowconfigure(1, weight=1)
-
         # the lower panel will be a long panel to display visuals 
         # we will add subequent frames inside notebook frame 
         self.notebook = ttk.Notebook(self)
@@ -183,6 +251,16 @@ class Application(tk.Tk):
 
         self.bottom_panel_dates = date_range_update(stop_watch_and_task_adder, self)
         self.bottom_panel_dates.grid(row=2, column=0, sticky='ew')
+
+        # First layer column configure
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=10)
+        self.columnconfigure(0, weight=2)
+        self.columnconfigure(1, weight=1)
+        # make next layer expandable
+        self.canvas_frame.columnconfigure(0, weight=1)
+        self.canvas_frame.scrollable_frame.columnconfigure(0, weight=1)
+        self.tasks.columnconfigure(0, weight=1, minsize=1000)
 
     def load_data(self):
        rows = self.conn.execute("SELECT * FROM sessions").fetchall()
@@ -298,7 +376,7 @@ class Tasks(ttk.Frame):
         # Let the task area expand with the frame.
         self.columnconfigure(0, weight=1)
 
-        self.header_frame = ttk.Frame(self, style="Card.TFrame", borderwidth=0, relief="flat")
+        self.header_frame = ttk.Frame(self, style="Card.TFrame")
         self.header_frame.columnconfigure(0, weight=1)
         self.header_frame.grid(
             row=0, column=0,
@@ -306,11 +384,19 @@ class Tasks(ttk.Frame):
             padx=(0, 20),
         )
 
-        self.calendar_frame = ttk.Frame(self, style="Card.TFrame", borderwidth=0, relief="flat")
+        self.calendar_frame = ttk.Frame(self, style="Card.TFrame")
         self.calendar_frame.columnconfigure(0, weight=1)
         self.calendar_frame.grid(
             row=0, column=1,
             sticky="ne",
+        )
+        self.calendar_frame.bind(
+            "<FocusOut>",
+            lambda event: self.calendar_frame.event_generate("<Escape>")
+        )
+        self.calendar_frame.bind(
+            "<Escape>",
+            lambda event: self.calendar_frame.event_generate("<Escape>")
         )
 
         ttk.Separator(self, orient="horizontal").grid(
@@ -320,7 +406,7 @@ class Tasks(ttk.Frame):
             pady=(16, 8),
         )
 
-        self.task_frame = ttk.Frame(self, style="Card.TFrame", borderwidth=0, relief="flat")
+        self.task_frame = ttk.Frame(self, style="Card.TFrame")
         self.task_frame.grid(
             row=2, column=0,
             columnspan=2,
@@ -328,7 +414,7 @@ class Tasks(ttk.Frame):
         )
         self.task_frame.columnconfigure(0, weight=1)
 
-        self.save_frame = ttk.Frame(self, style="Card.TFrame", borderwidth=0, relief="flat")
+        self.save_frame = ttk.Frame(self, style="Card.TFrame")
         self.save_frame.grid(
             row=3, column=0,
             columnspan=2,
@@ -346,7 +432,7 @@ class Tasks(ttk.Frame):
         goal_label = ttk.Label(
             self.header_frame,
             text="Daily Goals",
-            font=self.parent.heading_font,
+            style="Heading.TLabel",
         )
         goal_label.grid(row=0, column=0, sticky="w")
 
@@ -383,6 +469,14 @@ class Tasks(ttk.Frame):
             "<<DateEntrySelected>>",
             self.change_date,
         )
+        self.calendar.bind(
+            "<FocusOut>",
+            lambda event: self.calendar.event_generate("<Escape>")
+        )
+        self.calendar.bind(
+            "<Escape>",
+            lambda event: self.calendar.event_generate("<Escape>")
+        )
 
     def add_task(self, record):
         task_id = record["id"]
@@ -399,7 +493,7 @@ class Tasks(ttk.Frame):
             subject_frame = ttk.Frame(
                 self.task_frame,
                 padding=(0, 10),
-                style="Card.TFrame",borderwidth=0, relief="flat"
+                style="Card.TFrame"
             )
             subject_frame.grid(
                 row=len(self.subject_frames),
@@ -460,13 +554,14 @@ class Tasks(ttk.Frame):
         button = tk.Button(
             subject_frame,
             text="×",
-            font=("Segoe UI", 14),
-            fg="#888888",
-            bg="#ffffff",  # Match your task row's background
-            activeforeground="#dc2626",
-            activebackground="#fee2e2",
+            font=(self.parent.ui_font, 13),
+            fg=UI_COLORS["muted"],
+            bg=UI_COLORS["surface"],
+            activeforeground=UI_COLORS["danger"],
+            activebackground=UI_COLORS["surface"],
             relief="flat",
             borderwidth=0,
+            highlightthickness=0,
             cursor="hand2",
             padx=6,
             pady=0,
@@ -490,10 +585,6 @@ class Tasks(ttk.Frame):
         subject = self.days_items.pop(task_id)['subject']
         subject_frame = self.subject_frames[subject]
 
-        print(subject)
-
-        print(subject_frame.winfo_children())
-
         if len(subject_frame.winfo_children()) == 1:
             subject_frame.destroy()
             del self.subject_frames[subject]
@@ -509,35 +600,36 @@ class Tasks(ttk.Frame):
         time_frame = ttk.Frame(subject_frame, style="Card.TFrame", borderwidth=0, relief="flat")
         time_frame.grid(
             row=row, column=1,
-            sticky="e",
+            # sticky="e",
             padx=(20, 0),
             pady=5
         )
 
         hours_spinbox = ttk.Spinbox(
-            time_frame, cursor="xterm",
+            time_frame, 
+            cursor="xterm",
             from_=0,
             to=24,
             width=4,
-            justify="center",
+            # justify="center",
             textvariable=self.hours[task_id],
             wrap=True
         )
-        hours_spinbox.grid(row=0, column=0)
+        hours_spinbox.grid(row=0, column=0, padx=(0, 6))
 
         hour_label = ttk.Label(
             time_frame,
             text="hr"
         )
         
-        hour_label.grid(row=0, column=1, padx=(3, 10))
+        hour_label.grid(row=0, column=1, padx=(0, 18))
 
         minutes_spinbox = ttk.Spinbox(
             time_frame, cursor="xterm",
             from_=0,
             to=59,
             width=4,
-            justify="center",
+            # justify="center",
             textvariable=self.minutes[task_id],
             wrap=True
         )
@@ -547,7 +639,7 @@ class Tasks(ttk.Frame):
             time_frame,
             text="min"
         )   
-        min_label.grid(row=0, column=3, padx=(3, 0))
+        min_label.grid(row=0, column=3, padx=(0, 6))
 
         self.row_widgets[task_id].append(time_frame)
 
@@ -597,7 +689,8 @@ class Tasks(ttk.Frame):
 
     def save_button(self):
         save_button = ttk.Button(
-            self.save_frame, cursor="hand2",
+            self.save_frame, 
+            cursor="hand2",
             text="Save Changes",
             style="Accent.TButton",
             command=self.save_information,
@@ -657,7 +750,7 @@ class Timer(ttk.Frame):
         ttk.Label(
             self,
             text="Time A Task",
-            font=self.parent.heading_font
+            style="Heading.TLabel"
         ).grid(
             row=0,
             column=0,
@@ -701,6 +794,7 @@ class Timer(ttk.Frame):
             self,
             textvariable=self.sv,
             style="Timer.TLabel",
+            font=(self.parent.ui_font, 30, "bold"),
             anchor="center"
         )
 
@@ -802,7 +896,6 @@ class Timer(ttk.Frame):
             minutes+=1
 
         task_id = self.task_id_look_up[self.task_choice.get()]
-
         self.tasks.hours[task_id].set(hours)
         self.tasks.minutes[task_id].set(minutes)
 
@@ -847,8 +940,8 @@ class Schedule(ttk.Frame):
             row=0,
             column=0,
             sticky="w",
-            padx=(0, 10),
-            pady=(10, 5)
+            padx=(0, 6),
+            pady=(8, 5)
         )
 
         self.subject = ttk.Entry(self, cursor="xterm", width=18)
@@ -856,7 +949,7 @@ class Schedule(ttk.Frame):
             row=1,
             column=0,
             sticky="ew",
-            padx=(0, 10)
+            padx=(0, 6)
         )
 
         # Task
@@ -868,8 +961,8 @@ class Schedule(ttk.Frame):
             row=0,
             column=1,
             sticky="w",
-            padx=10,
-            pady=(10, 5)
+            padx=(6, 0),
+            pady=(8, 5)
         )
 
         self.task_name = ttk.Entry(self, cursor="xterm", width=18)
@@ -877,7 +970,7 @@ class Schedule(ttk.Frame):
             row=1,
             column=1,
             sticky="ew",
-            padx=10
+            padx=(6, 0)
         )
 
         # Frequency
@@ -889,8 +982,8 @@ class Schedule(ttk.Frame):
             row=2,
             column=0,
             sticky="w",
-            padx=10,
-            pady=(10, 5)
+            padx=(0, 6),
+            pady=(12, 5)
         )
 
         self.frequency_choice = tk.StringVar(
@@ -910,7 +1003,7 @@ class Schedule(ttk.Frame):
             row=3,
             column=0,
             sticky="ew",
-            padx=10
+            padx=(0, 6)
         )
 
         # Date / Day
@@ -942,7 +1035,7 @@ class Schedule(ttk.Frame):
         self.error_label = ttk.Label(
             self,
             textvariable=self.error_text,
-            foreground="#dc2626",
+            style="Error.TLabel",
             wraplength=180,
         )
         self.error_label.grid(
@@ -964,8 +1057,8 @@ class Schedule(ttk.Frame):
             row=2,
             column=1,
             sticky="w",
-            padx=(10, 0),
-            pady=(10, 5)
+            padx=(6, 0),
+            pady=(12, 5)
         )
 
         self.calendar = DateEntry(
@@ -977,7 +1070,7 @@ class Schedule(ttk.Frame):
             row=3,
             column=1,
             sticky="ew",
-            padx=(10, 0)
+            padx=(6, 0)
         )
 
 
@@ -1064,8 +1157,8 @@ class Schedule(ttk.Frame):
             if frequency == "one off":
                 self.parent.insert_record(
                     self.calendar.get(),
-                    subject,
-                    task
+                    self.subject.get().strip(),
+                    self.task.get().strip()
                 )
                 return
 
@@ -1073,10 +1166,10 @@ class Schedule(ttk.Frame):
                 day = self.day_choice.get()
             else:
                 day = None
-            print("frequency:", repr(frequency))
+
             self.parent.insert_recurring_task(
-                subject,
-                task,
+                self.subject.get().strip(),
+                self.task.get().strip(),
                 frequency,
                 day=day
             )
@@ -1152,6 +1245,13 @@ class ScrollableFrame(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
+        self.canvas.bind_all("<MouseWheel>", self.mousewheel)
+
+    def mousewheel(self, event):
+        self.canvas.yview_scroll(
+            int(-1 * (event.delta / 120)),
+            "units"
+        )
 
     def resize_frame(self, event):
         self.canvas.itemconfigure(
@@ -1162,7 +1262,7 @@ class ScrollableFrame(ttk.Frame):
 class StatCard(ttk.Frame):
 
     def __init__(self, parent, title, value, subtitle=None):
-        super().__init__(parent, padding=15, relief="flat", borderwidth=0)
+        super().__init__(parent, padding=18, style="StatCard.TFrame")
 
         ttk.Label(
             self,
@@ -1321,6 +1421,9 @@ class Analytics(ttk.Frame):
 
         self.parent = parent
 
+        for column in range(3):
+            self.columnconfigure(column, weight=1, uniform="analytics")
+
     def get_cards(self):
 
         cards = [
@@ -1340,8 +1443,8 @@ class Analytics(ttk.Frame):
                 row=row,
                 column=column,
                 sticky="nsew",
-                padx=6,
-                pady=6,
+                padx=8,
+                pady=8,
             )
 
     def filter_dates(self, start, end):
@@ -1465,7 +1568,7 @@ class date_range_update(ttk.Frame):
         date_choice_label = ttk.Label(
             self,
             text="Choose Date Range",
-            font=self.parent.heading_font,
+            style="Heading.TLabel",
         )
         date_choice_label.grid(row=0, column=0)
 
