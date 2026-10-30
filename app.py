@@ -171,7 +171,9 @@ opening_query_recurring_tasks = """
         subject TEXT NOT NULL,
         task TEXT NOT NULL,
         frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly')),
-        day TEX
+        day TEXT,
+        state_date TEST NOT NULL,
+        end_date TEXT NOT NULL
     );
 """
 
@@ -222,9 +224,11 @@ class Application(tk.Tk):
         # Now we add the scheduler and timer to that new frame
         self.goal_page = Schedule(stop_watch_and_task_adder, self)
         self.goal_page.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        self.goal_page.columnconfigure(0, weight=1)
 
         self.timer = Timer(stop_watch_and_task_adder, self)
         self.timer.grid(row=1, column=0, sticky="ew", pady=(0, 12))
+        self.timer.columnconfigure(0, weight=1)
 
         # the lower panel will be a long panel to display visuals 
         # we will add subequent frames inside notebook frame 
@@ -253,14 +257,14 @@ class Application(tk.Tk):
         self.bottom_panel_dates.grid(row=2, column=0, sticky='ew')
 
         # First layer column configure
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=10)
+        self.rowconfigure(0, weight=0)
+        self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=2)
         self.columnconfigure(1, weight=1)
         # make next layer expandable
         self.canvas_frame.columnconfigure(0, weight=1)
         self.canvas_frame.scrollable_frame.columnconfigure(0, weight=1)
-        self.tasks.columnconfigure(0, weight=1, minsize=1000)
+        self.tasks.columnconfigure(0, weight=1)
 
     def load_data(self):
        rows = self.conn.execute("SELECT * FROM sessions").fetchall()
@@ -489,6 +493,8 @@ class Tasks(ttk.Frame):
             record["completed"],
         )
 
+        print(task)
+
         if subject not in self.subject_frames:
             subject_frame = ttk.Frame(
                 self.task_frame,
@@ -578,6 +584,7 @@ class Tasks(ttk.Frame):
 
     def handle_delete(self, task_id):
         self.parent.delete_record(task_id)
+        print(task_id, 'deleted')
 
         for widget in self.row_widgets.pop(task_id):
             widget.destroy()
@@ -588,6 +595,8 @@ class Tasks(ttk.Frame):
         if len(subject_frame.winfo_children()) == 1:
             subject_frame.destroy()
             del self.subject_frames[subject]
+
+        self.parent.timer.get_stop_watch_options(self)
 
     def task_time_to_complete(self, task, row, subject_frame):
         task_id, _, task_minutes, _ = task
@@ -611,7 +620,7 @@ class Tasks(ttk.Frame):
             from_=0,
             to=24,
             width=4,
-            # justify="center",
+            justify="center",
             textvariable=self.hours[task_id],
             wrap=True
         )
@@ -629,7 +638,7 @@ class Tasks(ttk.Frame):
             from_=0,
             to=59,
             width=4,
-            # justify="center",
+            justify="center",
             textvariable=self.minutes[task_id],
             wrap=True
         )
@@ -822,6 +831,7 @@ class Timer(ttk.Frame):
         ttk.Button(
             self, cursor="hand2",
             text="Stop",
+            style="Accent.TButton",
             command=self.stop
         ).grid(
             row=3,
@@ -833,6 +843,7 @@ class Timer(ttk.Frame):
         ttk.Button(
             self, cursor="hand2",
             text="Finish",
+            style="Accent.TButton",
             command=self.complete
         ).grid(
             row=3,
@@ -1024,8 +1035,8 @@ class Schedule(ttk.Frame):
 
         button.grid(
             row=4,
-            column=1,
-            sticky="e",
+            column=0,
+            sticky="w",
             pady=(20, 0),
             columnspan=1
         )
@@ -1040,16 +1051,30 @@ class Schedule(ttk.Frame):
         )
         self.error_label.grid(
             row=4, column=0, columnspan=1,
-            sticky="w", padx=10, pady=(0, 8),
+            sticky="e", padx=10, pady=(0, 8),
         )
 
+        self.recurrence_frame = ttk.Frame(
+            self,
+            style="Card.TFrame",
+        )
+
+        self.recurrence_frame.grid(
+            row=4,
+            column=1,
+            sticky="e",
+            pady=(12,0)
+        )
+
+        self.recurrence_frame.columnconfigure(0, weight=1)
+        self.recurrence_frame.columnconfigure(1, weight=1)
 
     def create_date_selection(self, label_text):
         self.day_choice = None
 
         self.date_label = ttk.Label(
-            self,
-            text=label_text,
+            self.recurrence_frame,
+            text="Choose Date",
             style="Muted.TLabel"
         )
 
@@ -1062,7 +1087,8 @@ class Schedule(ttk.Frame):
         )
 
         self.calendar = DateEntry(
-            self, cursor="xterm",
+            self.recurrence_frame, 
+            cursor="xterm",
             date_pattern="yyyy-mm-dd"
         )
 
@@ -1245,7 +1271,14 @@ class ScrollableFrame(ttk.Frame):
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
 
+        self.canvas.bind("<Enter>", self.bind_mousewheel)
+        self.canvas.bind("<Leave>", self.unbind_mousewheel)
+
+    def bind_mousewheel(self, event=None):
         self.canvas.bind_all("<MouseWheel>", self.mousewheel)
+
+    def unbind_mousewheel(self, event=None):
+        self.canvas.unbind_all("<MouseWheel>")
 
     def mousewheel(self, event):
         self.canvas.yview_scroll(
@@ -1420,6 +1453,8 @@ class Analytics(ttk.Frame):
         super().__init__(parent, style="Card.TFrame")
 
         self.parent = parent
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
 
         for column in range(3):
             self.columnconfigure(column, weight=1, uniform="analytics")
@@ -1564,6 +1599,7 @@ class date_range_update(ttk.Frame):
         )
 
         self.parent = parent
+        self.rowconfigure(0, weight=1)
 
         date_choice_label = ttk.Label(
             self,
