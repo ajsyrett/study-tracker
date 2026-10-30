@@ -596,7 +596,7 @@ class Tasks(ttk.Frame):
             subject_frame.destroy()
             del self.subject_frames[subject]
 
-        self.parent.timer.get_stop_watch_options(self)
+        self.parent.timer.get_stop_watch_options()
 
     def task_time_to_complete(self, task, row, subject_frame):
         task_id, _, task_minutes, _ = task
@@ -1069,11 +1069,13 @@ class Schedule(ttk.Frame):
         self.recurrence_frame.columnconfigure(0, weight=1)
         self.recurrence_frame.columnconfigure(1, weight=1)
 
+    
+
     def create_date_selection(self, label_text):
         self.day_choice = None
 
         self.date_label = ttk.Label(
-            self.recurrence_frame,
+            self,
             text="Choose Date",
             style="Muted.TLabel"
         )
@@ -1087,8 +1089,7 @@ class Schedule(ttk.Frame):
         )
 
         self.calendar = DateEntry(
-            self.recurrence_frame, 
-            cursor="xterm",
+            self, cursor="xterm",
             date_pattern="yyyy-mm-dd"
         )
 
