@@ -939,12 +939,24 @@ class Schedule(ttk.Frame):
         self.tasks = parent.tasks
         self.day_choice = None
 
-        for column in range(2):
-            self.columnconfigure(column, weight=1)
+        # ==========================================
+        # Subject / Task Frame
+        # ==========================================
+
+        self.task_info_frame = ttk.Frame(
+            self,
+            style="Card.TFrame"
+        )
+
+        self.task_info_frame.grid(
+            row=0,
+            column=0,
+            sticky="w"
+        )
 
         # Subject
         ttk.Label(
-            self,
+            self.task_info_frame,
             text="Subject",
             style="Muted.TLabel"
         ).grid(
@@ -952,10 +964,15 @@ class Schedule(ttk.Frame):
             column=0,
             sticky="w",
             padx=(0, 6),
-            pady=(8, 5)
+            pady=(0, 5)
         )
 
-        self.subject = ttk.Entry(self, cursor="xterm", width=18)
+        self.subject = ttk.Entry(
+            self.task_info_frame,
+            cursor="xterm",
+            width=30
+        )
+
         self.subject.grid(
             row=1,
             column=0,
@@ -965,7 +982,7 @@ class Schedule(ttk.Frame):
 
         # Task
         ttk.Label(
-            self,
+            self.task_info_frame,
             text="Task Name",
             style="Muted.TLabel"
         ).grid(
@@ -973,10 +990,15 @@ class Schedule(ttk.Frame):
             column=1,
             sticky="w",
             padx=(6, 0),
-            pady=(8, 5)
+            pady=(0, 5)
         )
 
-        self.task_name = ttk.Entry(self, cursor="xterm", width=18)
+        self.task_name = ttk.Entry(
+            self.task_info_frame,
+            cursor="xterm",
+            width=30
+        )
+
         self.task_name.grid(
             row=1,
             column=1,
@@ -984,178 +1006,308 @@ class Schedule(ttk.Frame):
             padx=(6, 0)
         )
 
+        # ==========================================
+        # Recurrence Frame
+        # ==========================================
+
+        self.recurrence_frame = ttk.Frame(
+            self,
+            style="Card.TFrame"
+        )
+
+        self.recurrence_frame.grid(
+            row=1,
+            column=0,
+            sticky="w",
+            pady=(10, 0)
+        )
+
+        for column in range(4):
+            self.recurrence_frame.columnconfigure(
+                column,
+                weight=1,
+                uniform="recurrence"
+            )
+
         # Frequency
         ttk.Label(
-            self,
+            self.recurrence_frame,
             text="Task Frequency",
             style="Muted.TLabel"
         ).grid(
-            row=2,
+            row=0,
             column=0,
             sticky="w",
-            padx=(0, 6),
-            pady=(12, 5)
+            padx=(0, 5),
+            pady=(0, 5)
         )
 
         self.frequency_choice = tk.StringVar(
-            self,
+            self.recurrence_frame,
             value="One Off"
         )
 
         self.frequency_dropdown = ttk.Combobox(
-            self,
+            self.recurrence_frame,
             textvariable=self.frequency_choice,
             values=["One Off", "Daily", "Weekly"],
-            width=18,
-            state="readonly"
+            state="readonly",
+            width=18
         )
 
         self.frequency_dropdown.grid(
-            row=3,
+            row=1,
             column=0,
             sticky="ew",
-            padx=(0, 6)
+            padx=(0, 5)
         )
 
-        # Date / Day
-        self.create_date_selection("Choose Date")
+        # Initial One-Off date field
+        self.create_one_off_fields()
 
         self.frequency_dropdown.bind(
             "<<ComboboxSelected>>",
             self.frequency_adjustment
         )
 
-        # Submit
+        # ==========================================
+        # Submit / Error Frame
+        # ==========================================
+
+        self.submit_frame = ttk.Frame(
+            self,
+            style="Card.TFrame"
+        )
+
+        self.submit_frame.grid(
+            row=2,
+            column=0,
+            sticky="w",
+            pady=(20, 0)
+        )
+
+        self.error_text = tk.StringVar()
+
         button = ttk.Button(
-            self, cursor="hand2",
+            self.submit_frame,
+            cursor="hand2",
             text="Add Task",
             style="Accent.TButton",
             command=self.submit_new_record
         )
 
         button.grid(
-            row=4,
+            row=0,
             column=0,
-            sticky="w",
-            pady=(20, 0),
-            columnspan=1
+            sticky="w"
         )
-
-        self.error_text = tk.StringVar()
 
         self.error_label = ttk.Label(
-            self,
+            self.submit_frame,
             textvariable=self.error_text,
             style="Error.TLabel",
-            wraplength=180,
+            wraplength=180
         )
+
         self.error_label.grid(
-            row=4, column=0, columnspan=1,
-            sticky="e", padx=10, pady=(0, 8),
-        )
-
-        self.recurrence_frame = ttk.Frame(
-            self,
-            style="Card.TFrame",
-        )
-
-        self.recurrence_frame.grid(
-            row=4,
+            row=0,
             column=1,
-            sticky="e",
-            pady=(12,0)
+            sticky="w",
+            padx=(12, 0)
         )
+    def clear_frequency_specific_fields(self):
+        widgets = [
+            getattr(self, "date_label", None),
+            getattr(self, "calendar", None),
+            getattr(self, "day_label", None),
+            getattr(self, "day_dropdown", None),
+        ]
 
-        self.recurrence_frame.columnconfigure(0, weight=1)
-        self.recurrence_frame.columnconfigure(1, weight=1)
+        for widget in widgets:
+            if widget is not None and widget.winfo_exists():
+                widget.destroy()
 
-    
+    def clear_start_end_fields(self):
+        widgets = [
+            getattr(self, "start_date_label", None),
+            getattr(self, "start_date", None),
+            getattr(self, "end_date_label", None),
+            getattr(self, "end_date", None),
+        ]
 
-    def create_date_selection(self, label_text):
+        for widget in widgets:
+            if widget is not None and widget.winfo_exists():
+                widget.destroy()
+
+    def create_one_off_fields(self):
         self.day_choice = None
+        self.start_date = None
+        self.end_date = None
 
         self.date_label = ttk.Label(
-            self,
+            self.recurrence_frame,
             text="Choose Date",
             style="Muted.TLabel"
         )
 
         self.date_label.grid(
-            row=2,
+            row=0,
             column=1,
             sticky="w",
-            padx=(6, 0),
+            padx=(0, 5),
             pady=(12, 5)
         )
 
         self.calendar = DateEntry(
-            self, cursor="xterm",
+            self.recurrence_frame,
+            cursor="xterm",
             date_pattern="yyyy-mm-dd"
         )
 
         self.calendar.grid(
-            row=3,
+            row=1,
             column=1,
             sticky="ew",
-            padx=(6, 0)
+            padx=(10, 0)
         )
 
+    def create_daily_fields(self):
+        self.day_choice = None
+        self.calendar = None
+
+        # Start Date
+        self.start_date_label = ttk.Label(
+            self.recurrence_frame,
+            text="Start Date",
+            style="Muted.TLabel"
+        )
+
+        self.start_date_label.grid(
+            row=0,
+            column=1,
+            sticky="w",
+            padx=(0, 5),
+            pady=(12, 5)
+        )
+
+        self.start_date = DateEntry(
+            self.recurrence_frame,
+            cursor="xterm",
+            date_pattern="yyyy-mm-dd"
+        )
+
+        self.start_date.grid(
+            row=1,
+            column=1,
+            sticky="ew",
+            padx=(10, 0)
+        )
+
+        # End Date
+        self.end_date_label = ttk.Label(
+            self.recurrence_frame,
+            text="End Date",
+            style="Muted.TLabel"
+        )
+
+        self.end_date_label.grid(
+            row=0,
+            column=2,
+            sticky="w",
+            padx=(0, 5),
+            pady=(12, 5)
+        )
+
+        self.end_date = DateEntry(
+            self.recurrence_frame,
+            cursor="xterm",
+            date_pattern="yyyy-mm-dd"
+        )
+
+        self.end_date.grid(
+            row=1,
+            column=2,
+            sticky="ew",
+            padx=(10, 0)
+        )
+
+    def create_weekly_fields(self):
+        self.calendar = None
+
+        # Day
+        self.day_label = ttk.Label(
+            self.recurrence_frame,
+            text="Choose Day",
+            style="Muted.TLabel"
+        )
+
+        self.day_label.grid(
+            row=0,
+            column=3,
+            sticky="w",
+            padx=(10, 0),
+            pady=(12, 5)
+        )
+
+        self.day_choice = tk.StringVar(
+            self.recurrence_frame,
+            value="Friday"
+        )
+
+        self.day_dropdown = ttk.Combobox(
+            self.recurrence_frame,
+            textvariable=self.day_choice,
+            values=[
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+                "Sunday"
+            ],
+            state="readonly"
+        )
+
+        self.day_dropdown.grid(
+            row=1,
+            column=3,
+            sticky="ew",
+            padx=(10, 0)
+        )
+
+        self.create_daily_fields()
 
     def frequency_adjustment(self, event=None):
-        self.date_label.destroy()
-        self.calendar.destroy()
-
         frequency = self.frequency_choice.get()
 
+        # Always clear the lower-left changing field
+        self.clear_frequency_specific_fields()
+
         if frequency == "One Off":
-            self.create_date_selection("Choose Date")
+            self.clear_start_end_fields()
+            self.create_one_off_fields()
 
         elif frequency == "Daily":
-            self.create_date_selection("Choose Starting Date")
+            self.day_choice = None
 
-        else:
-            self.date_label = ttk.Label(
-                self,
-                text="Choose Day",
-                style="Muted.TLabel"
-            )
+            # Only create dates if they don't already exist
+            if (
+                getattr(self, "start_date", None) is None
+                or not self.start_date.winfo_exists()
+            ):
+                self.create_daily_fields()
 
-            self.date_label.grid(
-                row=2,
-                column=1,
-                sticky="w",
-                padx=(10, 0),
-                pady=(10, 5)
-            )
+        elif frequency == "Weekly":
 
-            self.day_choice = tk.StringVar(
-                self,
-                value="Friday"
-            )
+            # Keep existing start/end dates
+            if (
+                getattr(self, "start_date", None) is None
+                or not self.start_date.winfo_exists()
+            ):
+                self.create_daily_fields()
 
-            self.calendar = ttk.Combobox(
-                self,
-                textvariable=self.day_choice,
-                values=[
-                    "Monday",
-                    "Tuesday",
-                    "Wednesday",
-                    "Thursday",
-                    "Friday",
-                    "Saturday",
-                    "Sunday"
-                ],
-                width=18,
-            state="readonly"
-            )
-
-            self.calendar.grid(
-                row=3,
-                column=1,
-                sticky="ew",
-                padx=(10, 0)
-            )
-
+            self.create_weekly_fields()
 
     def submit_new_record(self):
         try:
