@@ -26,7 +26,6 @@ UI_COLORS = {
 CHART_COLORS = ("#0078D4", "#249D97", "#8073CA", "#D69A38",
                 "#D56F89", "#517798", "#77A44C", "#A47850")
 
-
 def configure_appearance(root):
     family = tkfont.nametofont("TkDefaultFont").actual("family")
     root.ui_font = family
@@ -147,7 +146,6 @@ def configure_appearance(root):
         "grid.linewidth": 0.7,
     })
 
-
 def main():
     app = Application()
     app.mainloop()
@@ -160,6 +158,7 @@ opening_query_sessions = """
         task TEXT NOT NULL,
         minutes INTEGER NOT NULL,
         completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+        canceled INTEGER NOT NULL DEFAULT 0 CHECK (canceled IN (0, 1)),
         recurring_id INTEGER,
         FOREIGN KEY (recurring_id) REFERENCES recurring_tasks(id)
     );
@@ -253,9 +252,6 @@ class Application(tk.Tk):
         self.notebook.add(self.analytics_tab, text="Analytics")
         self.notebook.add(self.visuals_tab, text="Visuals")
 
-        self.bottom_panel_dates = date_range_update(stop_watch_and_task_adder, self)
-        self.bottom_panel_dates.grid(row=2, column=0, sticky='ew')
-
         # First layer column configure
         self.rowconfigure(0, weight=0)
         self.rowconfigure(1, weight=1)
@@ -280,6 +276,7 @@ class Application(tk.Tk):
         return self.conn.execute("""
             SELECT * FROM sessions
             WHERE date = ?
+            AND canceled != 1
         """, (date,)).fetchall()
 
     def retrieve_recurring_tasks(self):
@@ -304,15 +301,21 @@ class Application(tk.Tk):
                 WHERE date = date('now', 'localtime')
                 AND recurring_id IS NOT NULL
             )
-        """, (day)).fetchall()
+            AND id NOT IN (
+                SELECT recurring_id
+                FROM sessions
+                WHERE date = date('now', 'localtime')
+                AND canceled = 1
+            )
+        """, (day,)).fetchall()
 
-    def insert_record(self, date, subject, task, minutes=0, completed=0, recurring_id=None):
+    def insert_record(self, date, subject, task, minutes=0, completed=0, canceled=0, recurring_id=None):
         
         with self.conn:
             self.conn.execute("""
-                INSERT INTO sessions (date, subject, task, minutes, completed, recurring_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (date, subject, task, minutes, completed, recurring_id))
+                INSERT INTO sessions (date, subject, task, minutes, completed, canceled, recurring_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (date, subject, task, minutes, completed, canceled, recurring_id))
 
     def insert_recurring_task(self, subject, task, frequency, day=None):
       
@@ -332,6 +335,15 @@ class Application(tk.Tk):
                 SET minutes = ?, completed = ?
                 WHERE id = ?
             """, (minutes, completed, id))
+
+    def cancel_record(self, id):
+
+        with self.conn:
+            self.conn.execute("""
+                UPDATE sessions
+                SET canceled = 1
+                WHERE id = ?
+            """, (id,))
 
     def delete_record(self, id):
         with self.conn:
@@ -491,13 +503,6 @@ class Tasks(ttk.Frame):
         task_id = record["id"]
         subject = record["subject"]
 
-        task = (
-            task_id,
-            record["task"],
-            record["minutes"],
-            record["completed"],
-        )
-
         if subject not in self.subject_frames:
             subject_frame = ttk.Frame(
                 self.task_frame,
@@ -517,11 +522,11 @@ class Tasks(ttk.Frame):
         subject_frame = self.subject_frames[subject]
         task_row = len(self.days_subjects[subject]) + 1
 
-        self.check_box(task, task_row, subject_frame)
-        self.task_time_to_complete(task, task_row, subject_frame)
-        self.delete_button(task, task_row, subject_frame)
+        self.check_box(record, task_row, subject_frame)
+        self.task_time_to_complete(record, task_row, subject_frame)
+        self.delete_button(record, task_row, subject_frame)
 
-        self.days_subjects[subject].append(task)
+        self.days_subjects[subject].append(record)
         self.days_items[task_id] = record
 
     def subject_label(self, subject, subject_frame):
@@ -536,8 +541,10 @@ class Tasks(ttk.Frame):
             pady=(0, 8),
         )
 
-    def check_box(self, task, row, subject_frame):
-        task_id, task_name, _, completed_status = task
+    def check_box(self, record, row, subject_frame):
+        task_id = record["id"]
+        completed_status = record["completed"]
+        task_name = record["task"]
 
         self.check_boxes[task_id] = tk.BooleanVar(
             self,
@@ -557,8 +564,8 @@ class Tasks(ttk.Frame):
 
         self.row_widgets[task_id].append(checkbox)
 
-    def delete_button(self, task, row, subject_frame):
-        task_id, task_name, _, completed_status = task
+    def delete_button(self, record, row, subject_frame):
+        task_id = record['id']
 
         button = tk.Button(
             subject_frame,
@@ -586,8 +593,13 @@ class Tasks(ttk.Frame):
         self.row_widgets[task_id].append(button)
 
     def handle_delete(self, task_id):
-        self.parent.delete_record(task_id)
-        print(task_id, 'deleted')
+        recurring_id = self.days_items[task_id]["recurring_id"]
+        if recurring_id is not None:
+            self.parent.cancel_record(task_id)
+            print(task_id, 'canceled')
+        else:
+            self.parent.delete_record(task_id)
+            print(task_id, 'deleted')
 
         for widget in self.row_widgets.pop(task_id):
             widget.destroy()
@@ -601,8 +613,9 @@ class Tasks(ttk.Frame):
 
         self.parent.timer.get_stop_watch_options()
 
-    def task_time_to_complete(self, task, row, subject_frame):
-        task_id, _, task_minutes, _ = task
+    def task_time_to_complete(self, record, row, subject_frame):
+        task_id = record["id"]
+        task_minutes = record["minutes"]
 
         hours, minutes = divmod(task_minutes, 60)
 
@@ -657,6 +670,8 @@ class Tasks(ttk.Frame):
 
     def register_todays_recurring_items(self, date):
         days_recurring_tasks = self.parent.retrieve_recurring_tasks()
+        print('here')
+        print([dict(x)for x in days_recurring_tasks])
 
         today_tasks = []
         for task_info in self.days_items.values():
@@ -1485,6 +1500,35 @@ class Visuals(ttk.Frame):
         self.canvas = None
         self.fig = None
 
+        self.header_frame = ttk.Frame(self, relief="solid", borderwidth=2)
+        self.header_frame.grid(row=0, column=0, sticky='ew')
+
+        date_choice_label = ttk.Label(
+            self.header_frame,
+            text="Choose Date Range",
+            style="Heading.TLabel",
+        )
+        date_choice_label.grid(row=0, column=0)
+
+        self.date_option = tk.StringVar()
+        self.date_dropdown = ttk.Combobox(
+            self.header_frame,
+            textvariable=self.date_option,
+            values=["Last Week", "Last Month", "Last Year"],
+            state="readonly"
+        )
+        self.date_dropdown.grid(row=1, column=0, padx=5)
+
+        self.date_dropdown.bind(
+            "<<ComboboxSelected>>",
+            lambda x: self.update_tabs()
+        )
+
+    def update_tabs(self):
+        self.parent.analytics_tab.get_start_and_end_dates()
+        self.parent.analytics_tab.filter_dates(self.start, self.end)
+        self.plot_study((self.start, self.end))
+
     def filter_and_group(self, data, dates, freq='daily'):
         start, end = map(pd.Timestamp, dates)
 
@@ -1608,14 +1652,43 @@ class Visuals(ttk.Frame):
       
 class Analytics(ttk.Frame):
     def __init__(self, notebook, parent):
-        super().__init__(parent, style="Card.TFrame")
+        super().__init__(parent, style="Card.TFrame",relief="solid", borderwidth=1)
 
         self.parent = parent
-        self.rowconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        # self.rowconfigure(0, weight=1)
+        # self.rowconfigure(1, weight=1)
 
-        for column in range(3):
-            self.columnconfigure(column, weight=1, uniform="analytics")
+        # for column in range(3):
+        #     self.columnconfigure(column, weight=1, uniform="analytics")
+
+        self.header_frame = ttk.Frame(self, relief="solid", borderwidth=1)
+        self.header_frame.grid(row=0, column=0, sticky='ew')
+        self.columnconfigure(0, weight=1) 
+
+
+        date_choice_label = ttk.Label(
+            self.header_frame,
+            text="Choose Date Range",
+            style="Heading.TLabel",
+        )
+        date_choice_label.grid(row=0, column=0)
+
+        self.date_option = tk.StringVar()
+        self.date_dropdown = ttk.Combobox(
+            self.header_frame,
+            textvariable=self.date_option,
+            values=["Last Week", "Last Month", "Last Year"],
+            state="readonly"
+        )
+        self.date_dropdown.grid(row=1, column=0, padx=5)
+
+        self.date_dropdown.bind(
+            "<<ComboboxSelected>>",
+            lambda x: self.update_tabs()
+        )
+
+        self.bottom_frame = tk.Frame(self, relief="solid", borderwidth=2)
+        self.bottom_frame.grid(row=1, column=0, sticky='nsew')
 
     def get_cards(self):
 
@@ -1631,7 +1704,7 @@ class Analytics(ttk.Frame):
         for i, (title, value, subtitle) in enumerate(cards):
             row, column = divmod(i, 3)
 
-            StatCard(self,title,value,subtitle)\
+            StatCard(self.bottom_frame,title,value,subtitle)\
             .grid(
                 row=row,
                 column=column,
@@ -1640,7 +1713,29 @@ class Analytics(ttk.Frame):
                 pady=8,
             )
 
+    def update_tabs(self):
+        self.get_start_and_end_dates()
+        self.filter_dates(self.start, self.end)
+        self.get_cards()
+
+    def get_start_and_end_dates(self):
+
+        choice = self.date_option.get()
+
+        if choice == 'Last Week':
+            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            self.start = (datetime.today() - timedelta(days=8)).strftime("%Y-%m-%d")
+
+        elif choice == 'Last Month':
+            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            self.start = (datetime.today() - timedelta(days=31)).strftime("%Y-%m-%d")
+
+        elif choice == 'Last Year':
+            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+            self.start = (datetime.today() - timedelta(days=366)).strftime("%Y-%m-%d")
+
     def filter_dates(self, start, end):
+        print(self.parent.df.head(5))
         self.df_filt = self.parent.df.query('date >= @start and date <= @end')
 
     def format_minutes(self, minutes):
@@ -1694,7 +1789,6 @@ class Analytics(ttk.Frame):
                 f"{self.format_minutes(minutes)} · {share:.0%} of study time",
             )
 
-
     def past_task_summary(self):
         today = datetime.today()
 
@@ -1705,7 +1799,6 @@ class Analytics(ttk.Frame):
             total_completed=("completed", "sum"),
             completion_rate=("completed", "mean"),
         )
-
 
     def most_consistent(self):
         summary = self.past_task_summary()
@@ -1745,62 +1838,6 @@ class Analytics(ttk.Frame):
             f"Skipped {int(result['skipped'])} "
             f"of {int(result['total_tasks'])} past tasks",
         )
-
-class date_range_update(ttk.Frame):
-    def __init__(self, new_frame, parent):
-        super().__init__(
-            new_frame,
-            borderwidth=0,
-            relief="flat",
-            padding=18,
-            style="Card.TFrame"
-        )
-
-        self.parent = parent
-        self.rowconfigure(0, weight=1)
-
-        date_choice_label = ttk.Label(
-            self,
-            text="Choose Date Range",
-            style="Heading.TLabel",
-        )
-        date_choice_label.grid(row=0, column=0)
-
-        self.date_option = tk.StringVar()
-        self.date_dropdown = ttk.Combobox(
-            self,
-            textvariable=self.date_option,
-            values=["Last Week", "Last Month", "Last Year", "Custom Range"],
-            state="readonly"
-        )
-        self.date_dropdown.grid(row=1, column=0, padx=5)
-
-        self.date_dropdown.bind(
-            "<<ComboboxSelected>>",
-            lambda x: self.update_tabs()
-        )
-
-    def get_start_and_end_dates(self):
-
-        choice = self.date_option.get()
-
-        if choice == 'Last Week':
-            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            self.start = (datetime.today() - timedelta(days=8)).strftime("%Y-%m-%d")
-
-        elif choice == 'Last Month':
-            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            self.start = (datetime.today() - timedelta(days=31)).strftime("%Y-%m-%d")
-
-        elif choice == 'Last Year':
-            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            self.start = (datetime.today() - timedelta(days=366)).strftime("%Y-%m-%d")
-
-    def update_tabs(self):
-        self.get_start_and_end_dates()
-        self.parent.analytics_tab.filter_dates(self.start, self.end)
-        self.parent.analytics_tab.get_cards()
-        self.parent.visuals_tab.plot_study((self.start, self.end))
     
 if __name__ == "__main__":
     main()
