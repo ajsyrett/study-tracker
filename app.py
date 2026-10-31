@@ -172,8 +172,8 @@ opening_query_recurring_tasks = """
         task TEXT NOT NULL,
         frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly')),
         day TEXT,
-        state_date TEST NOT NULL,
-        end_date TEXT NOT NULL
+        start_date TEXT,
+        end_date TEXT
     );
 """
 
@@ -282,9 +282,9 @@ class Application(tk.Tk):
             WHERE date = ?
         """, (date,)).fetchall()
 
-    def retrieve_recurring_tasks(self, date):
+    def retrieve_recurring_tasks(self):
 
-        day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")
+        day = datetime.today().strftime("%A")
 
         return self.conn.execute("""
             SELECT *
@@ -293,13 +293,18 @@ class Application(tk.Tk):
                 frequency = 'daily'
                 OR (frequency = 'weekly' AND day = ?)
             )
+            AND start_date <= date('now', 'localtime')
+            AND (
+                end_date IS NULL
+                OR end_date >= date('now', 'localtime')
+            )
             AND id NOT IN (
                 SELECT recurring_id
                 FROM sessions
-                WHERE date = ?
+                WHERE date = date('now', 'localtime')
                 AND recurring_id IS NOT NULL
             )
-        """, (day, date)).fetchall()
+        """, (day)).fetchall()
 
     def insert_record(self, date, subject, task, minutes=0, completed=0, recurring_id=None):
         
@@ -493,8 +498,6 @@ class Tasks(ttk.Frame):
             record["completed"],
         )
 
-        print(task)
-
         if subject not in self.subject_frames:
             subject_frame = ttk.Frame(
                 self.task_frame,
@@ -653,7 +656,7 @@ class Tasks(ttk.Frame):
         self.row_widgets[task_id].append(time_frame)
 
     def register_todays_recurring_items(self, date):
-        days_recurring_tasks = self.parent.retrieve_recurring_tasks(date)
+        days_recurring_tasks = self.parent.retrieve_recurring_tasks()
 
         today_tasks = []
         for task_info in self.days_items.values():
@@ -945,13 +948,14 @@ class Schedule(ttk.Frame):
 
         self.task_info_frame = ttk.Frame(
             self,
-            style="Card.TFrame"
+            style="Card.TFrame",
+            relief="solid", borderwidth=1
         )
 
         self.task_info_frame.grid(
             row=0,
             column=0,
-            sticky="w"
+            sticky="ew"
         )
 
         # Subject
@@ -970,7 +974,7 @@ class Schedule(ttk.Frame):
         self.subject = ttk.Entry(
             self.task_info_frame,
             cursor="xterm",
-            width=30
+            width=30,
         )
 
         self.subject.grid(
@@ -1012,13 +1016,14 @@ class Schedule(ttk.Frame):
 
         self.recurrence_frame = ttk.Frame(
             self,
-            style="Card.TFrame"
+            style="Card.TFrame",
+            relief="solid", borderwidth=1
         )
 
         self.recurrence_frame.grid(
             row=1,
             column=0,
-            sticky="w",
+            sticky="ew",
             pady=(10, 0)
         )
 
@@ -1052,7 +1057,7 @@ class Schedule(ttk.Frame):
             textvariable=self.frequency_choice,
             values=["One Off", "Daily", "Weekly"],
             state="readonly",
-            width=18
+            width=12
         )
 
         self.frequency_dropdown.grid(
@@ -1337,7 +1342,7 @@ class Schedule(ttk.Frame):
                 self.parent.insert_record(
                     self.calendar.get(),
                     self.subject.get().strip(),
-                    self.task.get().strip()
+                    self.task_name.get().strip()
                 )
                 return
 
@@ -1348,7 +1353,7 @@ class Schedule(ttk.Frame):
 
             self.parent.insert_recurring_task(
                 self.subject.get().strip(),
-                self.task.get().strip(),
+                self.tasks.get().strip(),
                 frequency,
                 day=day
             )
