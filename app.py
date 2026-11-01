@@ -12,7 +12,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-
 # Appearance only: configured once when the app opens.
 UI_COLORS = {
     "page": "#F3F6FB",
@@ -124,12 +123,21 @@ def configure_appearance(root):
         padding=(18, 9),
     )
 
+    # Treeview
+    style.configure(
+        "TaskManager.Treeview",
+        background=UI_COLORS["surface"],
+        fieldbackground=UI_COLORS["surface"],
+        foreground=UI_COLORS["text"],
+        font=(family, 10),
+        rowheight=30,
+        borderwidth=0,
+    )
     style.configure(
         "TaskManager.Treeview.Heading",
         font=(family, 10, "bold"),
         padding=(8, 7),
     )
-
     style.map(
         "TaskManager.Treeview",
         background=[("selected", UI_COLORS["accent"])],
@@ -303,11 +311,23 @@ class Application(tk.Tk):
         )
 
         self.task_manager = TaskManager(self.notebook, self)
-
+        self.notebook.add(
+            self.task_manager,
+            text="Manage Data",
+        )
 
     def load_data(self):
        rows = self.conn.execute("SELECT * FROM sessions").fetchall()
-       self.df = pd.DataFrame([dict(row) for row in rows])
+       sessions = pd.DataFrame([dict(row) for row in rows])
+       self.df=sessions
+
+       rows = self.conn.execute("SELECT * FROM recurring_tasks").fetchall()
+       recurring_tasks = pd.DataFrame([dict(row) for row in rows])
+
+       self.data_lookup = {
+           'sessions':sessions,
+           'recurring_tasks':recurring_tasks
+       }
 
     def change_stats_period(self, event=None):
         period = self.stats_period.get()
@@ -370,7 +390,7 @@ class Application(tk.Tk):
 
         return cursor.lastrowid
 
-    def update_record(self, id, minutes, completed):
+    def update_task(self, id, minutes, completed):
 
         with self.conn:
             self.conn.execute("""
@@ -388,12 +408,14 @@ class Application(tk.Tk):
                 WHERE id = ?
             """, (id,))
 
-    def delete_record(self, id):
+    def delete_record(self, table, id):
         with self.conn:
-            self.conn.execute("""
-                DELETE FROM sessions
+            self.conn.execute(f"""
+                DELETE FROM {table}
                 WHERE id = ?
             """, (id,))
+
+        print(F"{table} deleted")
 
     def retrieve_new_records(self, date, existing_ids):
         existing_ids = tuple(existing_ids)
@@ -407,6 +429,26 @@ class Application(tk.Tk):
         parameters = (date,) + existing_ids
 
         return self.conn.execute(query, parameters).fetchall()
+
+    def update_record(self, id, table, column, value):
+
+        print('table:',table, 'column:',column)
+
+        try:
+            value = int(value)
+        except ValueError:
+            pass
+
+        id = int(id)
+
+        with self.conn:
+            self.conn.execute(f"""
+                UPDATE {table}
+                SET {column} = ?
+                WHERE id = ?
+            """, (value, id))
+
+        print(f"{table} updated")
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -640,7 +682,7 @@ class Tasks(ttk.Frame):
             self.parent.cancel_record(task_id)
             print(task_id, 'canceled')
         else:
-            self.parent.delete_record(task_id)
+            self.parent.delete_record("sessions", task_id)
             print(task_id, 'deleted')
 
         for widget in self.row_widgets.pop(task_id):
@@ -780,7 +822,7 @@ class Tasks(ttk.Frame):
                 task_completed_before != task_completed_after
                 or str(task_minutes_before) != task_minutes_after
             ):
-                self.parent.update_record(
+                self.parent.update_task(
                     task_id,
                     task_minutes_after,
                     task_completed_after,
@@ -1421,233 +1463,6 @@ relief="solid", borderwidth=2,
             self.tasks.check_for_new_records()
             self.parent.timer.get_stop_watch_options()
 
-class ScrollableFrame(ttk.Frame):
-
-    def __init__(self, parent):
-        super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=1)
-
-        self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)
-
-        self.canvas = tk.Canvas(
-            self,
-            highlightthickness=0,
-            background=UI_COLORS["surface"]
-        )
-
-        self.scrollbar = ttk.Scrollbar(
-            self,
-            orient="vertical",
-            command=self.canvas.yview
-        )
-
-        self.scrollable_frame = ttk.Frame(
-            self.canvas,
-            style="Card.TFrame"
-        )
-        self.scrollable_frame.columnconfigure(0,weight=1)
-
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda event: self.canvas.configure(
-                scrollregion=self.canvas.bbox("all")
-            )
-        )
-
-        self.canvas_window = self.canvas.create_window(
-            (0, 0),
-            window=self.scrollable_frame,
-            anchor="nw"
-        )
-
-        self.canvas.configure(
-            yscrollcommand=self.scrollbar.set
-        )
-
-        self.canvas.bind(
-            "<Configure>",
-            self.resize_frame
-        )
-
-        self.canvas.grid(
-            row=0,
-            column=0,
-            sticky="nsew"
-        )
-
-        self.scrollbar.grid(
-            row=0,
-            column=1,
-            sticky="ns"
-        )
-
-        self.canvas.bind("<Enter>", self.bind_mousewheel)
-        self.canvas.bind("<Leave>", self.unbind_mousewheel)
-
-    def bind_mousewheel(self, event=None):
-        self.canvas.bind_all("<MouseWheel>", self.mousewheel)
-
-    def unbind_mousewheel(self, event=None):
-        self.canvas.unbind_all("<MouseWheel>")
-
-    def mousewheel(self, event):
-        # If all content is visible, don't scroll.
-        top, bottom = self.canvas.yview()
-
-        if top <= 0 and bottom >= 1:
-            return "break"
-
-        self.canvas.yview_scroll(
-            int(-event.delta / 120),
-            "units",
-        )
-        return "break"
-
-    def resize_frame(self, event):
-        self.canvas.itemconfigure(
-            self.canvas_window,
-            width=event.width
-        )
-
-class StatCard(ttk.Frame):
-
-    def __init__(self, parent, title, value, subtitle=None):
-        super().__init__(parent, padding=18, style="StatCard.TFrame")
-
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(0, weight=1)
-
-        # No sticky: the content stays centered inside this cell.
-        self.content = ttk.Frame(self, style="Card.TFrame")
-        self.content.grid(row=0, column=0)
-
-        self.title_label = ttk.Label(
-            self.content,
-            text=title.upper(),
-            style="Muted.TLabel",
-            anchor="center",
-            justify="center",
-        )
-        self.title_label.pack(fill="x")
-
-        self.value_label = ttk.Label(
-            self.content,
-            text=value,
-            style="Metric.TLabel",
-            anchor="center",
-            justify="center",
-        )
-        self.value_label.pack(fill="x", pady=(8, 0))
-
-        self.subtitle_label = ttk.Label(
-            self.content,
-            text=subtitle or "",
-            style="Muted.TLabel",
-            anchor="center",
-            justify="center",
-        )
-        if subtitle:
-            self.subtitle_label.pack(fill="x")
-
-    def set_title(self, title):
-        self.title_label.configure(text=title.upper())
-
-    def set_value(self, value):
-        self.value_label.configure(text=value)
-
-    def set_subtitle(self, subtitle):
-        self.subtitle_label.configure(text=subtitle or "")
-
-        if subtitle:
-            self.subtitle_label.pack(fill="x")
-        else:
-            self.subtitle_label.pack_forget()
-
-class TreeView(ttk.Frame):
-    def __init__(self, parent, title, columns, names, default_widths):
-        super().__init__(parent, style="Card.TFrame")
-
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-
-        ttk.Label(
-            self,
-            text=title,
-            style="Heading.TLabel",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
-
-        # Frame containing the table and scrollbar
-        tree_frame = ttk.Frame(
-            self,
-            style="Card.TFrame",
-            relief="solid",
-            borderwidth=2,
-        )
-        tree_frame.grid(row=1, column=0, sticky="nsew")
-        tree_frame.columnconfigure(0, weight=1)
-        tree_frame.rowconfigure(0, weight=1)
-
-        self.tree = ttk.Treeview(
-            tree_frame,
-            columns=columns,
-            show="headings",
-            selectmode="browse",
-            height=8,
-            style="TaskManager.Treeview",
-        )
-        self.tree.grid(row=0, column=0, sticky="nsew")
-
-        for column, name, width in zip(columns, names, default_widths):
-            self.tree.heading(column, text=name)
-            self.tree.column(
-                column,
-                width=width,
-                minwidth=60,
-                anchor="w",
-            )
-
-        scrollbar = ttk.Scrollbar(
-            tree_frame,
-            orient="vertical",
-            command=self.tree.yview,
-        )
-        scrollbar.grid(row=0, column=1, sticky="ns")
-
-        self.tree.configure(yscrollcommand=scrollbar.set)
-
-    def insert_row(self, values, iid=None):
-        if self.tree.exists(iid):
-            self.tree.item(iid, values=values)
-        else:
-            self.tree.insert("","end",iid=iid,values=values)
-
-    def sort_values(self, descending=False):
-        row_ids = self.tree.get_children()
-
-        def get_name(row_id):
-            return self.tree.set(row_id, "name")
-
-        sorted_ids = sorted(row_ids, key=get_name, reverse=descending)
-
-        for position, row_id in enumerate(sorted_ids):
-            self.tree.move(row_id, "", position)
-
-    def load_dataframe(self, df):
-        current_ids = set()
-
-        for index, row in df.iterrows():
-            row_id = str(index)
-            current_ids.add(row_id)
-
-            self.insert_row(
-                values=tuple(row),
-                iid=row_id,
-            )
-
-        for row_id in self.tree.get_children():
-            if row_id not in current_ids:
-                self.tree.delete(row_id)
-
 class Visuals(ttk.Frame):
     def __init__(self, notebook, parent, df):
         super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=2)
@@ -1964,9 +1779,7 @@ class Analytics(ttk.Frame):
         tree = self.subject_table.tree
         current_ids = set()
 
-        for position, (subject, result) in enumerate(
-            summary.iterrows()
-        ):
+        for (subject, result) in summary.iterrows():
             row_id = f"subject:{subject}"
             current_ids.add(row_id)
 
@@ -2126,334 +1939,505 @@ class TaskManager(ttk.Frame):
             style="Page.TFrame",
             padding=10, relief="solid", borderwidth=2
         )
+        self.root = self.winfo_toplevel()
 
-        self.parent = parent
+        self.dataset_lookup = {
+            "Sessions": {
+                "table": "sessions",
+                "title": "Task History",
+                "columns": (
+                    "date", "subject", "task",
+                    "minutes", "completed", "canceled",
+                ),
+                "names": (
+                    "Date", "Subject", "Task Name",
+                    "Minutes", "Completed", "Canceled",
+                ),
+                "default_widths": (100, 100, 200, 100, 100, 100),
+            },
+            "Recurring tasks": {
+                "table": "recurring_tasks",
+                "title": "Recurring Tasks",
+                "columns": (
+                    "subject", "task", "frequency",
+                    "day", "start_date", "end_date",
+                ),
+                "names": (
+                    "Subject", "Task Name", "Frequency",
+                    "Day", "Start Date", "End Date",
+                ),
+                "default_widths": (100, 200, 100, 100, 100, 100),
+            },
+        }
 
-        self.columnconfigure(0, weight=3)
-        self.columnconfigure(1, weight=2)
+        self.current_dataset = None
+
+        self.dataset_choice = tk.StringVar(value="Sessions")
+
+        self.header_frame = ttk.Frame(self, relief="solid", borderwidth=2, style="Card.TFrame")
+        self.header_frame.grid(
+            row=0, column=0, sticky="ew", pady=(0, 10)
+        )
+        self.header_frame.columnconfigure(1, weight=1)
+
+        # Search label and entry
+        self.search_label = ttk.Label(
+            self.header_frame,
+            text="Search:",
+        )
+        self.search_label.grid(row=0, column=0, padx=(0, 8))
+
+        self.search_text = tk.StringVar()
+
+        self.search_entry = ttk.Entry(
+            self.header_frame,
+            textvariable=self.search_text,
+            cursor="xterm",
+        )
+        self.search_entry.grid(row=0, column=1, sticky="ew", padx=(0, 20))
+
+        # Dataset label and dropdown
+        self.dataset_label = ttk.Label(
+            self.header_frame,
+            text="Dataset:",
+        )
+        self.dataset_label.grid(
+            row=0, column=4, padx=(20, 8)
+        )
+
+        self.dataset_combo = ttk.Combobox(
+            self.header_frame,
+            textvariable=self.dataset_choice,
+            values=tuple(self.dataset_lookup),
+            state="readonly",
+            width=20,
+        )
+        self.dataset_combo.grid(
+            row=0, column=5
+        )
+
+        # Switch tables when the user selects a dataset
+        self.dataset_combo.bind(
+            "<<ComboboxSelected>>",
+            lambda event: self.generate_tree(self.dataset_choice.get()),
+        )
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        self.generate_tree(self.dataset_choice.get())
+
+        # Delete label and button
+        self.delete_label = ttk.Label(
+            self.header_frame,
+            text="Selected row:",
+        )
+        self.delete_label.grid(row=0, column=2, padx=(0, 8))
+
+        print(self.current_dataset)
+        self.delete_button = ttk.Button(
+            self.header_frame,
+            text="Delete",
+            cursor="hand2",
+            command=self.current_dataset.delete_selected
+        )
+        self.delete_button.grid(row=0, column=3)
+
+    def generate_tree(self, dataset):
+        settings = self.dataset_lookup[dataset]
+
+        # Retrieve the selected DataFrame already in memory
+        self.table_name = settings["table"]
+        df = self.root.data_lookup[self.table_name]
+
+        # Remove the previous table
+        if self.current_dataset is not None:
+            self.current_dataset.destroy()
+
+        self.current_dataset = TreeView(
+            parent=self,
+            title=settings["title"],
+            columns=settings["columns"],
+            names=settings["names"],
+            default_widths=settings["default_widths"],
+        )
+        self.current_dataset.dataset = settings["table"]
+        self.current_dataset.grid(
+            row=1, column=0, sticky="nsew"
+        )
+
+        # Use database IDs as row IDs and match the display column order
+        display_df = df.set_index("id")[list(settings["columns"])]
+        self.current_dataset.load_dataframe(display_df)
+
+        # Save the new table's row IDs for searching
+        self.all_row_ids = self.current_dataset.tree.get_children()
+
+        self.current_dataset.search_table(self.search_text)
+
+class StatCard(ttk.Frame):
+
+    def __init__(self, parent, title, value, subtitle=None):
+        super().__init__(parent, padding=18, style="StatCard.TFrame")
+
+        self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        # Styles specific to this tab
-        style = ttk.Style(self)
+        # No sticky: the content stays centered inside this cell.
+        self.content = ttk.Frame(self, style="Card.TFrame")
+        self.content.grid(row=0, column=0)
 
-        style.configure(
-            "TaskManager.Treeview",
-            background=UI_COLORS["surface"],
-            fieldbackground=UI_COLORS["surface"],
-            foreground=UI_COLORS["text"],
-            font=(parent.ui_font, 10),
-            rowheight=30,
-            borderwidth=0,
+        self.title_label = ttk.Label(
+            self.content,
+            text=title.upper(),
+            style="Muted.TLabel",
+            anchor="center",
+            justify="center",
         )
+        self.title_label.pack(fill="x")
 
-        style.configure(
-            "TaskManager.Treeview.Heading",
-            font=(parent.ui_font, 10, "bold"),
-            padding=(8, 7),
+        self.value_label = ttk.Label(
+            self.content,
+            text=value,
+            style="Metric.TLabel",
+            anchor="center",
+            justify="center",
         )
+        self.value_label.pack(fill="x", pady=(8, 0))
 
-        style.map(
-            "TaskManager.Treeview",
-            background=[("selected", UI_COLORS["accent"])],
-            foreground=[("selected", "#FFFFFF")],
+        self.subtitle_label = ttk.Label(
+            self.content,
+            text=subtitle or "",
+            style="Muted.TLabel",
+            anchor="center",
+            justify="center",
         )
+        if subtitle:
+            self.subtitle_label.pack(fill="x")
 
-        self.make_history_panel()
-        self.make_recurring_panel()
+    def set_title(self, title):
+        self.title_label.configure(text=title.upper())
 
-    def make_history_panel(self):
-        self.history_panel = ttk.Frame(
-            self,
-            style="Card.TFrame",
-            padding=15, relief="solid", borderwidth=2
-        )
-        self.history_panel.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=(0, 10),
-        )
+    def set_value(self, value):
+        self.value_label.configure(text=value)
 
-        self.history_panel.columnconfigure(0, weight=1)
-        self.history_panel.rowconfigure(2, weight=1)
+    def set_subtitle(self, subtitle):
+        self.subtitle_label.configure(text=subtitle or "")
+
+        if subtitle:
+            self.subtitle_label.pack(fill="x")
+        else:
+            self.subtitle_label.pack_forget()
+
+class EntryPopup(ttk.Entry):
+    def __init__(self, parent, iid, column, text, **kw):
+        super().__init__(parent, **kw)
+        self.tv = parent.tree  # reference to parent window's treeview
+        self.iid = iid  # row id
+        self.column = column 
+
+        self.insert(0, text) 
+        self['exportselection'] = False  # Prevents selected text from being copied to  
+                                         # clipboard when widget loses focus
+        self.focus_force()  # Set focus to the Entry widget
+        self.select_all()   # Highlight all text within the entry widget
+        self.bind("<Return>", self.on_return) # Enter key bind
+        self.bind("<Control-a>", self.select_all) # CTRL + A key bind
+        self.bind("<Escape>", lambda *ignore: self.destroy()) # ESC key bind
+
+
+        self.column_name = parent.names[column]
+        self.dataset = parent.dataset
+        self.root = self.winfo_toplevel()
+
+    def on_return(self, event):
+        '''Insert text into treeview, and delete the entry popup'''
+        rowid = self.tv.focus()  # Find row id of the cell which was clicked
+        vals = self.tv.item(rowid, 'values')  # Returns a tuple of all values from the row with id, "rowid"
+        vals = list(vals)  # Convert the values to a list so it becomes mutable
+        user_inputted_value = self.get()
+        vals[self.column] = self.get()  # Update values with the new text from the entry widget
+        self.tv.item(rowid, values=vals)  # Update the Treeview cell with updated row values
+        self.root.update_record(rowid, self.dataset, self.column_name, user_inputted_value)
+        self.destroy()  # Destroy the Entry Widget
+        
+    def select_all(self, *ignore):
+        ''' Set selection on the whole text '''
+        self.selection_range(0, 'end')
+        return 'break' # returns 'break' to interrupt default key-bindings
+
+class TreeView(ttk.Frame):
+    def __init__(self, parent, title, columns, names, default_widths):
+        super().__init__(parent, style="Card.TFrame")
+
+        self.names = columns
+        self.parent = parent
+        self.root = self.winfo_toplevel()
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
 
         ttk.Label(
-            self.history_panel,
-            text="Task history",
+            self,
+            text=title,
             style="Heading.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 12))
 
-        # Search
-        search_frame = ttk.Frame(
-            self.history_panel,
-            style="Card.TFrame", relief="solid", borderwidth=2
-        )
-        search_frame.grid(
-            row=1, column=0, sticky="ew", pady=(0, 12)
-        )
-        search_frame.columnconfigure(0, weight=1)
-
-        self.search_var = tk.StringVar()
-
-        self.search_entry = ttk.Entry(
-            search_frame,
-            textvariable=self.search_var,
-            cursor="xterm",
-        )
-        self.search_entry.grid(
-            row=0, column=0, sticky="ew", padx=(0, 8)
-        )
-
-        ttk.Button(
-            search_frame,
-            text="Search",
-            cursor="hand2",
-        ).grid(row=0, column=1)
-
-        # Treeview and scrollbar
+        # Frame containing the table and scrollbar
         tree_frame = ttk.Frame(
-            self.history_panel,
-            style="Card.TFrame", relief="solid", borderwidth=2
+            self,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=2,
         )
-        tree_frame.grid(row=2, column=0, sticky="nsew")
+        tree_frame.grid(row=1, column=0, sticky="nsew")
         tree_frame.columnconfigure(0, weight=1)
         tree_frame.rowconfigure(0, weight=1)
 
-        self.history_tree = ttk.Treeview(
+        self.tree = ttk.Treeview(
             tree_frame,
-            columns=("date", "subject", "task", "status"),
+            columns=columns,
             show="headings",
             selectmode="browse",
             height=8,
             style="TaskManager.Treeview",
         )
+        self.tree.grid(row=0, column=0, sticky="nsew")
 
-        for column, title, width in (
-            ("date", "Date", 95),
-            ("subject", "Subject", 100),
-            ("task", "Task", 200),
-            ("status", "Status", 90),
-        ):
-            self.history_tree.heading(column, text=title)
-            self.history_tree.column(
+        for column, name, width in zip(columns, names, default_widths):
+            self.tree.heading(column, text=name)
+            self.tree.column(
                 column,
                 width=width,
                 minwidth=60,
                 anchor="w",
             )
 
-        self.history_tree.grid(
-            row=0, column=0, sticky="nsew"
-        )
-
         scrollbar = ttk.Scrollbar(
             tree_frame,
             orient="vertical",
-            command=self.history_tree.yview,
+            command=self.tree.yview,
         )
         scrollbar.grid(row=0, column=1, sticky="ns")
 
-        self.history_tree.configure(
-            yscrollcommand=scrollbar.set
+        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.tree.configure(style="TaskManager.Treeview")
+
+        for column in self.tree["columns"]:
+            self.tree.heading(
+                column,
+                command=lambda col=column: self.sort_values(col),
+            )
+
+        self.tree.bind("<Double-1>", lambda event: self.onDoubleClick(event))
+
+    def insert_row(self, values, iid=None):
+        if self.tree.exists(iid):
+            self.tree.item(iid, values=values)
+        else:
+            self.tree.insert("","end",iid=iid,values=values)
+
+    def sort_values(self, column, descending=False):
+
+        self.column_sort_date = {other_column:None for other_column in self.tree["columns"] if other_column != column}
+
+        row_ids = self.tree.get_children()
+
+        def get_name(row_id):
+            value = self.tree.set(row_id, column)
+
+            try:
+                return float(value)
+            except ValueError:
+                return value.casefold()
+
+        sorted_ids = sorted(row_ids, key=get_name, reverse=descending)
+
+        for position, row_id in enumerate(sorted_ids):
+            self.tree.move(row_id, "", position)
+
+        self.tree.heading(
+            column,
+            command=lambda col=column: self.sort_values(col, descending=not descending),
         )
 
-        ttk.Button(
-            self.history_panel,
-            text="Delete selected task",
-            cursor="hand2",
-        ).grid(
-            row=3, column=0, sticky="w", pady=(12, 0)
-        )
+    def load_dataframe(self, df):
+        current_ids = set()
 
-    def make_recurring_panel(self):
-        self.recurring_panel = ttk.Frame(
+        for index, row in df.iterrows():
+            row_id = str(index)
+            current_ids.add(row_id)
+
+            self.insert_row(
+                values=tuple(row),
+                iid=row_id,
+            )
+
+        for row_id in self.tree.get_children():
+            if row_id not in current_ids:
+                self.tree.delete(row_id)
+
+    def onDoubleClick(self, event):
+            '''Executed, when a row is double-clicked'''
+            # close previous popups
+            try:  # in case there was no previous popup
+                self.entryPopup.destroy()
+            except AttributeError:
+                pass
+
+            # what row and column was clicked on
+            rowid = self.tree.identify_row(event.y)
+            column = self.tree.identify_column(event.x)
+
+            # return if the header was double clicked
+            if not rowid:
+                return
+
+            # Get cell position and dimensions
+            x, y, width, height = self.tree.bbox(rowid, column)
+
+            # Get cell text
+            column_index = int(column[1:]) - 1
+            text = self.tree.item(rowid, "values")[column_index]
+
+            print(column, column_index)
+            print('text:',text,'column:',column_index,'id:',rowid)
+            column_name = self.names[column_index]
+            print(column_name)
+
+            # Create and position the entry over the cell
+            self.entryPopup = EntryPopup(self, rowid, column_index, text)
+            self.entryPopup.place(
+                in_=self.tree,
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                anchor="nw",
+            )
+
+    def delete_selected(self):
+        selected = self.tree.selection()
+
+        if not selected:
+            return
+
+        row_id = selected[0]
+        self.tree.delete(row_id)
+        self.root.delete_record(self.dataset, row_id)
+
+    def search_table(self, string_variable):
+        self.all_row_ids = self.tree.get_children()
+
+        self.current_entry = string_variable
+        self.current_entry.trace_add("write", self.search_rows)
+
+    def search_rows(self, *args):
+        # we need *args included because trace_add is going to pass 3 argument variable’s name, index and operation.
+        # even though we don't need them we have to accept them
+        search = self.current_entry.get().strip().casefold()
+
+        for row_id in self.all_row_ids:
+            values = self.tree.item(row_id, "values")
+
+            matches = False
+
+            for value in values:
+                if search in str(value).casefold():
+                    matches = True
+                    break
+
+            if matches:
+                self.tree.move(row_id, "", "end")
+            else:
+                self.tree.detach(row_id)
+
+class ScrollableFrame(ttk.Frame):
+
+    def __init__(self, parent):
+        super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=1)
+
+        self.rowconfigure(0, weight=1)
+        self.columnconfigure(0, weight=1)
+
+        self.canvas = tk.Canvas(
             self,
-            style="Card.TFrame",
-            padding=15, relief="solid", borderwidth=1
-        )
-        self.recurring_panel.grid(
-            row=0, column=1, sticky="nsew"
+            highlightthickness=0,
+            background=UI_COLORS["surface"]
         )
 
-        self.recurring_panel.columnconfigure(0, weight=1)
-        self.recurring_panel.rowconfigure(0, weight=1)
-        self.recurring_panel.rowconfigure(1, weight=1)
-        self.recurring_panel.rowconfigure(2, weight=1)
-        self.recurring_panel.rowconfigure(3, weight=1)
-        self.recurring_panel.rowconfigure(4, weight=1)
-
-
-        ttk.Label(
-            self.recurring_panel,
-            text="Recurring tasks",
-            style="Heading.TLabel",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 5))
-
-        ttk.Label(
-            self.recurring_panel,
-            text="Select a task to view or edit its settings.",
-            style="Muted.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(0, 10))
-
-        self.recurring_choice = tk.StringVar()
-
-        self.recurring_dropdown = ttk.Combobox(
-            self.recurring_panel,
-            textvariable=self.recurring_choice,
-            state="readonly",
-        )
-        self.recurring_dropdown.grid(
-            row=2, column=0, sticky="ew"
+        self.scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.canvas.yview
         )
 
-        # ttk.Separator(
-        #     self.recurring_panel,
-        # ).grid(
-        #     row=3, column=0, sticky="ew", pady=15
-        # )
-
-        # Selected task details
-        self.details_frame = ttk.Frame(
-            self.recurring_panel,
-            style="Card.TFrame", relief="solid", borderwidth=2
+        self.scrollable_frame = ttk.Frame(
+            self.canvas,
+            style="Card.TFrame"
         )
-        self.details_frame.grid(
-            row=4, column=0, sticky="nsew"
-        )
-        # self.details_frame.columnconfigure(1, weight=1)
-        # self.details_frame.rowconfigure(0, weight=1)
-        # self.details_frame.rowconfigure(1, weight=1)
-        # self.details_frame.rowconfigure(2, weight=1)
-        # self.details_frame.rowconfigure(3, weight=1)
-        # self.details_frame.rowconfigure(4, weight=1)
-        # self.details_frame.rowconfigure(5, weight=1)
-        # self.details_frame.rowconfigure(6, weight=1)
-        # self.details_frame.rowconfigure(7, weight=1)
-        # self.details_frame.rowconfigure(8, weight=1)
-        # self.details_frame.rowconfigure(9, weight=1)
-        # self.details_frame.rowconfigure(10, weight=1)
+        self.scrollable_frame.columnconfigure(0,weight=1)
 
-        ttk.Label(
-            self.details_frame,
-            text="Selected task",
-            style="Subject.TLabel",
-        ).grid(
-            row=0, column=0, columnspan=2,
-            sticky="w", pady=(0, 10),
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda event: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
         )
 
-        self.subject_var = tk.StringVar()
-        self.task_var = tk.StringVar()
-        self.frequency_var = tk.StringVar()
-        self.cancellation_date = tk.StringVar()
-
-        ttk.Label(
-            self.details_frame,
-            text="Subject",
-        ).grid(
-            row=1, column=0, sticky="w", padx=(0, 12)
+        self.canvas_window = self.canvas.create_window(
+            (0, 0),
+            window=self.scrollable_frame,
+            anchor="nw"
         )
 
-        ttk.Entry(
-            self.details_frame,
-            textvariable=self.subject_var,
-            cursor="xterm",
-        ).grid(
-            row=1, column=1, sticky="ew", pady=5
+        self.canvas.configure(
+            yscrollcommand=self.scrollbar.set
         )
 
-        ttk.Label(
-            self.details_frame,
-            text="Task",
-        ).grid(
-            row=2, column=0, sticky="w", padx=(0, 12)
+        self.canvas.bind(
+            "<Configure>",
+            self.resize_frame
         )
 
-        ttk.Entry(
-            self.details_frame,
-            textvariable=self.task_var,
-            cursor="xterm",
-        ).grid(
-            row=2, column=1, sticky="ew", pady=5
+        self.canvas.grid(
+            row=0,
+            column=0,
+            sticky="nsew"
         )
 
-        ttk.Label(
-            self.details_frame,
-            text="Frequency",
-        ).grid(
-            row=3, column=0, sticky="w", padx=(0, 12)
+        self.scrollbar.grid(
+            row=0,
+            column=1,
+            sticky="ns"
         )
 
-        ttk.Combobox(
-            self.details_frame,
-            textvariable=self.frequency_var,
-            values=("daily", "weekly"),
-            state="readonly",
-        ).grid(
-            row=3, column=1, sticky="ew", pady=5
-        )
+        self.canvas.bind("<Enter>", self.bind_mousewheel)
+        self.canvas.bind("<Leave>", self.unbind_mousewheel)
 
-        ttk.Button(
-            self.details_frame,
-            text="Save changes",
-            style="Accent.TButton",
-            cursor="hand2",
-        ).grid(
-            row=4, column=0, columnspan=2,
-            sticky="w", pady=(10, 0),
-        )
+    def bind_mousewheel(self, event=None):
+        self.canvas.bind_all("<MouseWheel>", self.mousewheel)
 
-        ttk.Separator(
-            self.details_frame,
-        ).grid(
-            row=5, column=0, columnspan=2,
-            sticky="ew", pady=15,
-        )
+    def unbind_mousewheel(self, event=None):
+        self.canvas.unbind_all("<MouseWheel>")
 
-        ttk.Label(
-            self.details_frame,
-            text="Cancellations",
-            style="Subject.TLabel",
-        ).grid(
-            row=6, column=0, columnspan=2,
-            sticky="w", pady=(0, 8),
-        )
+    def mousewheel(self, event):
+        # If all content is visible, don't scroll.
+        top, bottom = self.canvas.yview()
 
-        ttk.Label(
-            self.details_frame,
-            text="Canceled date",
-        ).grid(
-            row=7, column=0, sticky="w", padx=(0, 12)
-        )
+        if top <= 0 and bottom >= 1:
+            return "break"
 
-        self.cancellation_dropdown = ttk.Combobox(
-            self.details_frame,
-            textvariable=self.cancellation_date,
-            state="readonly",
+        self.canvas.yview_scroll(
+            int(-event.delta / 120),
+            "units",
         )
-        self.cancellation_dropdown.grid(
-            row=7, column=1, sticky="ew", pady=5
-        )
+        return "break"
 
-        ttk.Button(
-            self.details_frame,
-            text="Remove cancellation",
-            cursor="hand2",
-        ).grid(
-            row=8, column=0, columnspan=2,
-            sticky="w", pady=(8, 0),
-        )
-
-        # Extra vertical space goes above the delete button.
-        self.details_frame.rowconfigure(9, weight=1)
-
-        ttk.Button(
-            self.details_frame,
-            text="Delete recurring task",
-            cursor="hand2",
-        ).grid(
-            row=10, column=0, columnspan=2,
-            sticky="w", pady=(15, 0),
+    def resize_frame(self, event):
+        self.canvas.itemconfigure(
+            self.canvas_window,
+            width=event.width
         )
 
 if __name__ == "__main__":
