@@ -124,6 +124,18 @@ def configure_appearance(root):
         padding=(18, 9),
     )
 
+    style.configure(
+        "TaskManager.Treeview.Heading",
+        font=(family, 10, "bold"),
+        padding=(8, 7),
+    )
+
+    style.map(
+        "TaskManager.Treeview",
+        background=[("selected", UI_COLORS["accent"])],
+        foreground=[("selected", "#FFFFFF")],
+    )
+
     # Charts
     plt.rcParams.update({
         "font.family": "sans-serif",
@@ -189,78 +201,109 @@ class Application(tk.Tk):
 
         self.today = datetime.today().strftime("%Y-%m-%d")
         self.title("Study Tracker")
-        self.geometry("1280x850")
+        self.geometry("1080x650")
 
-        # setting up canvas frame that will contain scroll bar so we can scroll through
-        # daily tasks when the list gets too long 
-        self.canvas_frame = ScrollableFrame(self)
-        self.canvas_frame.grid(
-            row=0,
-            column=0,
-            sticky="nsew",
-            padx=10,
-            pady=10
-        )
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        # we create the task frame now inside the scrollable bar frame
-        # the scrollable bar frame is created in the ScrollableFrame class 
-        self.tasks = Tasks(self.canvas_frame.scrollable_frame, self)
-        self.tasks.grid(
-            row=0,
-            column=0,
-            sticky="new"
-        )
-
-        # we want the stop watch and task adder panel to line up nicely with the 
-        # task frame so we create a separate frame next to the task frame and then put
-        # these two frames inside it
-
-        # First we create and place the frame to sit next to the tasks
-        stop_watch_and_task_adder = ttk.Frame(self, style="Page.TFrame")
-        stop_watch_and_task_adder.grid(row=0,column=1, padx=10, pady=10, sticky="new")
-        stop_watch_and_task_adder.columnconfigure(0, weight=1)
-
-        # Now we add the scheduler and timer to that new frame
-        self.goal_page = Schedule(stop_watch_and_task_adder, self)
-        self.goal_page.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        self.goal_page.columnconfigure(0, weight=1)
-
-        self.timer = Timer(stop_watch_and_task_adder, self)
-        self.timer.grid(row=1, column=0, sticky="ew", pady=(0, 12))
-        self.timer.columnconfigure(0, weight=1)
-
-        # the lower panel will be a long panel to display visuals 
-        # we will add subequent frames inside notebook frame 
         self.notebook = ttk.Notebook(self)
         self.notebook.grid(
-            row=1,
+            row=0,
             column=0,
-            columnspan=2,
             sticky="nsew",
             padx=10,
             pady=10,
         )
 
-        # this is a dataload to pull all the data into memory so it's
-        # available to analyze if we need it
+        self.main_tab = ttk.Frame(
+            self.notebook,
+            style="Page.TFrame",
+            padding=10,
+        )
+        self.notebook.add(self.main_tab, text="Daily tasks")
+
+        self.main_tab.columnconfigure(0, weight=3)
+        self.main_tab.columnconfigure(1, weight=2)
+        self.main_tab.rowconfigure(0, weight=1)
+
+        self.canvas_frame = ScrollableFrame(self.main_tab)
+        self.canvas_frame.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 10),
+        )
+
+        self.canvas_frame.scrollable_frame.columnconfigure(
+            0, weight=1
+        )
+
+        self.tasks = Tasks(
+            self.canvas_frame.scrollable_frame,
+            self,
+        )
+        self.tasks.grid(
+            row=0,
+            column=0,
+            sticky="new",
+        )
+
+        stop_watch_and_task_adder = ttk.Frame(
+            self.main_tab,
+            style="Page.TFrame",
+        )
+        stop_watch_and_task_adder.grid(
+            row=0,
+            column=1,
+            sticky="nsew",
+        )
+        stop_watch_and_task_adder.columnconfigure(0, weight=1)
+
+        self.goal_page = Schedule(
+            stop_watch_and_task_adder,
+            self,
+        )
+        self.goal_page.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            pady=(0, 12),
+        )
+        self.goal_page.columnconfigure(0, weight=1)
+
+        self.timer = Timer(
+            stop_watch_and_task_adder,
+            self,
+        )
+        self.timer.grid(
+            row=1,
+            column=0,
+            sticky="ew",
+        )
+        self.timer.columnconfigure(0, weight=1)
+
+        stop_watch_and_task_adder.rowconfigure(2, weight=1)
+
         self.load_data()
 
-        # these are the visual and analytics tab that we create within the notebook and then add them 
-        self.visuals_tab = Visuals(self.notebook, self, self.df)
         self.analytics_tab = Analytics(self.notebook, self)
+        self.notebook.add(
+            self.analytics_tab,
+            text="Analytics",
+        )
 
-        self.notebook.add(self.analytics_tab, text="Analytics")
-        self.notebook.add(self.visuals_tab, text="Visuals")
+        self.visuals_tab = Visuals(
+            self.notebook,
+            self,
+            self.df,
+        )
+        self.notebook.add(
+            self.visuals_tab,
+            text="Visuals",
+        )
 
-        # First layer column configure
-        self.rowconfigure(0, weight=0)
-        self.rowconfigure(1, weight=1)
-        self.columnconfigure(0, weight=2)
-        self.columnconfigure(1, weight=1)
-        # make next layer expandable
-        self.canvas_frame.columnconfigure(0, weight=1)
-        self.canvas_frame.scrollable_frame.columnconfigure(0, weight=1)
-        self.tasks.columnconfigure(0, weight=1)
+        self.task_manager = TaskManager(self.notebook, self)
+
 
     def load_data(self):
        rows = self.conn.execute("SELECT * FROM sessions").fetchall()
@@ -369,10 +412,8 @@ class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
         super().__init__(
             canvas,
-            borderwidth=0,
-            relief="flat",
-            padding=18,
-            style="Card.TFrame"
+            padding=10,
+            style="Card.TFrame",relief="solid", borderwidth=2
         )
 
         self.parent = parent
@@ -397,7 +438,7 @@ class Tasks(ttk.Frame):
         # Let the task area expand with the frame.
         self.columnconfigure(0, weight=1)
 
-        self.header_frame = ttk.Frame(self, style="Card.TFrame")
+        self.header_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
         self.header_frame.columnconfigure(0, weight=1)
         self.header_frame.grid(
             row=0, column=0,
@@ -405,7 +446,7 @@ class Tasks(ttk.Frame):
             padx=(0, 20),
         )
 
-        self.calendar_frame = ttk.Frame(self, style="Card.TFrame")
+        self.calendar_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
         self.calendar_frame.columnconfigure(0, weight=1)
         self.calendar_frame.grid(
             row=0, column=1,
@@ -427,7 +468,7 @@ class Tasks(ttk.Frame):
             pady=(16, 8),
         )
 
-        self.task_frame = ttk.Frame(self, style="Card.TFrame")
+        self.task_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
         self.task_frame.grid(
             row=2, column=0,
             columnspan=2,
@@ -435,7 +476,7 @@ class Tasks(ttk.Frame):
         )
         self.task_frame.columnconfigure(0, weight=1)
 
-        self.save_frame = ttk.Frame(self, style="Card.TFrame")
+        self.save_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
         self.save_frame.grid(
             row=3, column=0,
             columnspan=2,
@@ -507,7 +548,8 @@ class Tasks(ttk.Frame):
             subject_frame = ttk.Frame(
                 self.task_frame,
                 padding=(0, 10),
-                style="Card.TFrame"
+                style="Card.TFrame",
+                relief="solid", borderwidth=2
             )
             subject_frame.grid(
                 row=len(self.subject_frames),
@@ -622,7 +664,7 @@ class Tasks(ttk.Frame):
         self.hours[task_id] = tk.StringVar(self, value=hours)
         self.minutes[task_id] = tk.StringVar(self, value=minutes)
 
-        time_frame = ttk.Frame(subject_frame, style="Card.TFrame", borderwidth=0, relief="flat")
+        time_frame = ttk.Frame(subject_frame, style="Card.TFrame", relief="solid", borderwidth=2)
         time_frame.grid(
             row=row, column=1,
             # sticky="e",
@@ -749,9 +791,8 @@ class Timer(ttk.Frame):
     def __init__(self, new_frame, parent):
         super().__init__(
             new_frame,
-            borderwidth=0,
-            relief="flat",
-            padding=18,
+relief="solid", borderwidth=2,
+            padding=10,
             style="Card.TFrame"
         )
 
@@ -947,9 +988,8 @@ class Schedule(ttk.Frame):
     def __init__(self, new_frame, parent):
         super().__init__(
             new_frame,
-            padding=18,
-            relief="flat",
-            borderwidth=0,
+            padding=10,
+relief="solid", borderwidth=2,
             style="Card.TFrame"
         )
 
@@ -1384,7 +1424,7 @@ class Schedule(ttk.Frame):
 class ScrollableFrame(ttk.Frame):
 
     def __init__(self, parent):
-        super().__init__(parent, style="Card.TFrame")
+        super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=1)
 
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -1441,9 +1481,6 @@ class ScrollableFrame(ttk.Frame):
             sticky="ns"
         )
 
-        self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)
-
         self.canvas.bind("<Enter>", self.bind_mousewheel)
         self.canvas.bind("<Leave>", self.unbind_mousewheel)
 
@@ -1454,10 +1491,17 @@ class ScrollableFrame(ttk.Frame):
         self.canvas.unbind_all("<MouseWheel>")
 
     def mousewheel(self, event):
+        # If all content is visible, don't scroll.
+        top, bottom = self.canvas.yview()
+
+        if top <= 0 and bottom >= 1:
+            return "break"
+
         self.canvas.yview_scroll(
-            int(-1 * (event.delta / 120)),
-            "units"
+            int(-event.delta / 120),
+            "units",
         )
+        return "break"
 
     def resize_frame(self, event):
         self.canvas.itemconfigure(
@@ -1470,28 +1514,143 @@ class StatCard(ttk.Frame):
     def __init__(self, parent, title, value, subtitle=None):
         super().__init__(parent, padding=18, style="StatCard.TFrame")
 
-        ttk.Label(
-            self,
-            text=title.upper(),
-            style="Muted.TLabel"
-        ).pack(anchor="w")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
-        ttk.Label(
-            self,
+        # No sticky: the content stays centered inside this cell.
+        self.content = ttk.Frame(self, style="Card.TFrame")
+        self.content.grid(row=0, column=0)
+
+        self.title_label = ttk.Label(
+            self.content,
+            text=title.upper(),
+            style="Muted.TLabel",
+            anchor="center",
+            justify="center",
+        )
+        self.title_label.pack(fill="x")
+
+        self.value_label = ttk.Label(
+            self.content,
             text=value,
-            style="Metric.TLabel"
-        ).pack(anchor="w", pady=(8, 0))
+            style="Metric.TLabel",
+            anchor="center",
+            justify="center",
+        )
+        self.value_label.pack(fill="x", pady=(8, 0))
+
+        self.subtitle_label = ttk.Label(
+            self.content,
+            text=subtitle or "",
+            style="Muted.TLabel",
+            anchor="center",
+            justify="center",
+        )
+        if subtitle:
+            self.subtitle_label.pack(fill="x")
+
+    def set_title(self, title):
+        self.title_label.configure(text=title.upper())
+
+    def set_value(self, value):
+        self.value_label.configure(text=value)
+
+    def set_subtitle(self, subtitle):
+        self.subtitle_label.configure(text=subtitle or "")
 
         if subtitle:
-            ttk.Label(
-                self,
-                text=subtitle,
-                style="Muted.TLabel"
-            ).pack(anchor="w")
+            self.subtitle_label.pack(fill="x")
+        else:
+            self.subtitle_label.pack_forget()
+
+class TreeView(ttk.Frame):
+    def __init__(self, parent, title, columns, names, default_widths):
+        super().__init__(parent, style="Card.TFrame")
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        ttk.Label(
+            self,
+            text=title,
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
+
+        # Frame containing the table and scrollbar
+        tree_frame = ttk.Frame(
+            self,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=2,
+        )
+        tree_frame.grid(row=1, column=0, sticky="nsew")
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+
+        self.tree = ttk.Treeview(
+            tree_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+            height=8,
+            style="TaskManager.Treeview",
+        )
+        self.tree.grid(row=0, column=0, sticky="nsew")
+
+        for column, name, width in zip(columns, names, default_widths):
+            self.tree.heading(column, text=name)
+            self.tree.column(
+                column,
+                width=width,
+                minwidth=60,
+                anchor="w",
+            )
+
+        scrollbar = ttk.Scrollbar(
+            tree_frame,
+            orient="vertical",
+            command=self.tree.yview,
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.tree.configure(yscrollcommand=scrollbar.set)
+
+    def insert_row(self, values, iid=None):
+        if self.tree.exists(iid):
+            self.tree.item(iid, values=values)
+        else:
+            self.tree.insert("","end",iid=iid,values=values)
+
+    def sort_values(self, descending=False):
+        row_ids = self.tree.get_children()
+
+        def get_name(row_id):
+            return self.tree.set(row_id, "name")
+
+        sorted_ids = sorted(row_ids, key=get_name, reverse=descending)
+
+        for position, row_id in enumerate(sorted_ids):
+            self.tree.move(row_id, "", position)
+
+    def load_dataframe(self, df):
+        current_ids = set()
+
+        for index, row in df.iterrows():
+            row_id = str(index)
+            current_ids.add(row_id)
+
+            self.insert_row(
+                values=tuple(row),
+                iid=row_id,
+            )
+
+        for row_id in self.tree.get_children():
+            if row_id not in current_ids:
+                self.tree.delete(row_id)
 
 class Visuals(ttk.Frame):
     def __init__(self, notebook, parent, df):
-        super().__init__(parent, style="Card.TFrame")
+        super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=2)
 
         self.parent = parent
         self.df = df
@@ -1652,47 +1811,133 @@ class Visuals(ttk.Frame):
       
 class Analytics(ttk.Frame):
     def __init__(self, notebook, parent):
-        super().__init__(parent, style="Card.TFrame",relief="solid", borderwidth=1)
+        super().__init__(
+            notebook,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=1,
+        )
 
         self.parent = parent
-        # self.rowconfigure(0, weight=1)
-        # self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
 
-        # for column in range(3):
-        #     self.columnconfigure(column, weight=1, uniform="analytics")
+        self.header_frame = ttk.Frame(
+            self,
+            style="Card.TFrame",
+        )
+        self.header_frame.grid(
+            row=0, column=0, sticky="ew", padx=10, pady=10
+        )
 
-        self.header_frame = ttk.Frame(self, relief="solid", borderwidth=1)
-        self.header_frame.grid(row=0, column=0, sticky='ew')
-        self.columnconfigure(0, weight=1) 
-
-
-        date_choice_label = ttk.Label(
+        ttk.Label(
             self.header_frame,
             text="Choose Date Range",
             style="Heading.TLabel",
-        )
-        date_choice_label.grid(row=0, column=0)
+        ).grid(row=0, column=0, sticky="w")
 
-        self.date_option = tk.StringVar()
+        self.date_option = tk.StringVar(value="Last Week")
+
         self.date_dropdown = ttk.Combobox(
             self.header_frame,
             textvariable=self.date_option,
             values=["Last Week", "Last Month", "Last Year"],
-            state="readonly"
+            state="readonly",
         )
-        self.date_dropdown.grid(row=1, column=0, padx=5)
-
+        self.date_dropdown.grid(
+            row=1, column=0, sticky="w", pady=(5, 0)
+        )
         self.date_dropdown.bind(
             "<<ComboboxSelected>>",
-            lambda x: self.update_tabs()
+            lambda event: self.update_tabs(),
         )
 
-        self.bottom_frame = tk.Frame(self, relief="solid", borderwidth=2)
-        self.bottom_frame.grid(row=1, column=0, sticky='nsew')
+        self.bottom_frame = ttk.Frame(
+            self,
+            style="Card.TFrame",
+        )
+        self.bottom_frame.grid(
+            row=1, column=0, sticky="nsew"
+        )
+        self.bottom_frame.rowconfigure(0, weight=1)
+        self.bottom_frame.columnconfigure(
+            0, weight=1, uniform="equal"
+        )
+        self.bottom_frame.columnconfigure(
+            1, weight=1, uniform="equal"
+        )
 
-    def get_cards(self):
+        self.bottom_left_frame = ttk.Frame(
+            self.bottom_frame,
+            style="Card.TFrame",
+        )
+        self.bottom_left_frame.grid(
+            row=0, column=0, sticky="nsew"
+        )
 
-        cards = [
+        for column in range(3):
+            self.bottom_left_frame.columnconfigure(
+                column, weight=1, uniform="cards"
+            )
+
+        for row in range(2):
+            self.bottom_left_frame.rowconfigure(
+                row, weight=1, uniform="cards"
+            )
+
+        self.bottom_right_frame = ttk.Frame(
+            self.bottom_frame,
+            style="Card.TFrame",
+        )
+        self.bottom_right_frame.grid(
+            row=0, column=1, sticky="nsew", padx=8, pady=8
+        )
+        self.bottom_right_frame.columnconfigure(0, weight=1)
+        self.bottom_right_frame.rowconfigure(0, weight=1)
+
+        # Create the cards once and retain their instances
+        self.cards = []
+
+        for i in range(6):
+            row, column = divmod(i, 3)
+
+            card = StatCard(
+                self.bottom_left_frame,
+                title="",
+                value="",
+            )
+            sticky = "new" if row==1 else "sew"
+            card.grid(
+                row=row,
+                column=column,
+                sticky=sticky,
+                padx=8,
+                pady=8,
+            )
+
+            self.cards.append(card)
+
+        self.subject_table = TreeView(
+            parent=self.bottom_right_frame,
+            title="Summary by Subject",
+            columns=("subject", "time", "completed", "rate"),
+            names=("Subject", "Study Time", "Completed", "Completion"),
+            default_widths=(120, 100, 100, 100),
+        )
+        self.subject_table.grid(
+            row=0, column=0, sticky="nsew"
+        )
+
+        self.update_tabs()
+
+    def update_tabs(self):
+        self.get_start_and_end_dates()
+        self.filter_dates(self.start, self.end)
+        self.update_cards()
+        self.update_subject_tree()
+
+    def update_cards(self):
+        card_values = [
             self.get_total_study_time(),
             self.tasks_completed(),
             self.study_days(),
@@ -1701,42 +1946,65 @@ class Analytics(ttk.Frame):
             self.most_skipped(),
         ]
 
-        for i, (title, value, subtitle) in enumerate(cards):
-            row, column = divmod(i, 3)
+        for card, (title, value, subtitle) in zip(
+            self.cards, card_values
+        ):
+            card.set_title(title)
+            card.set_value(value)
+            card.set_subtitle(subtitle)
 
-            StatCard(self.bottom_frame,title,value,subtitle)\
-            .grid(
-                row=row,
-                column=column,
-                sticky="nsew",
-                padx=8,
-                pady=8,
+    def update_subject_tree(self):
+        summary = self.df_filt.groupby("subject").agg(
+            total_minutes=("minutes", "sum"),
+            total_tasks=("completed", "size"),
+            total_completed=("completed", "sum"),
+            completion_rate=("completed", "mean"),
+        )
+
+        tree = self.subject_table.tree
+        current_ids = set()
+
+        for position, (subject, result) in enumerate(
+            summary.iterrows()
+        ):
+            row_id = f"subject:{subject}"
+            current_ids.add(row_id)
+
+            values = (
+                subject,
+                self.format_minutes(result["total_minutes"]),
+                f"{int(result['total_completed'])} "
+                f"of {int(result['total_tasks'])}",
+                f"{result['completion_rate']:.0%}",
             )
 
-    def update_tabs(self):
-        self.get_start_and_end_dates()
-        self.filter_dates(self.start, self.end)
-        self.get_cards()
+            self.subject_table.insert_row(values=values,iid=row_id)
+
+        for row_id in tree.get_children():
+            if row_id not in current_ids:
+                tree.delete(row_id)
 
     def get_start_and_end_dates(self):
+        days_by_choice = {
+            "Last Week": 7,
+            "Last Month": 30,
+            "Last Year": 365,
+        }
 
-        choice = self.date_option.get()
+        self.period_days = days_by_choice[self.date_option.get()]
 
-        if choice == 'Last Week':
-            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            self.start = (datetime.today() - timedelta(days=8)).strftime("%Y-%m-%d")
-
-        elif choice == 'Last Month':
-            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            self.start = (datetime.today() - timedelta(days=31)).strftime("%Y-%m-%d")
-
-        elif choice == 'Last Year':
-            self.end = (datetime.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-            self.start = (datetime.today() - timedelta(days=366)).strftime("%Y-%m-%d")
+        today = datetime.today().date()
+        self.end = (today - timedelta(days=1)).isoformat()
+        self.start = (
+            today - timedelta(days=self.period_days)
+        ).isoformat()
 
     def filter_dates(self, start, end):
-        print(self.parent.df.head(5))
-        self.df_filt = self.parent.df.query('date >= @start and date <= @end')
+        dates = pd.to_datetime(self.parent.df["date"]).dt.normalize()
+
+        self.df_filt = self.parent.df.loc[
+            dates.between(pd.Timestamp(start), pd.Timestamp(end))
+        ]
 
     def format_minutes(self, minutes):
         hours, minutes = divmod(int(minutes), 60)
@@ -1744,7 +2012,9 @@ class Analytics(ttk.Frame):
 
     def get_total_study_time(self):
         total_time = self.df_filt["minutes"].sum()
-        subjects = self.df_filt.loc[self.df_filt["minutes"] > 0, "subject"].nunique()
+        subjects = self.df_filt.loc[
+            self.df_filt["minutes"] > 0, "subject"
+        ].nunique()
 
         return (
             "Total study time",
@@ -1764,35 +2034,45 @@ class Analytics(ttk.Frame):
         )
 
     def study_days(self):
-        days = self.df_filt.loc[self.df_filt["minutes"] > 0, "date"].nunique()
+        dates = pd.to_datetime(
+            self.df_filt.loc[self.df_filt["minutes"] > 0, "date"]
+        )
+        days = dates.dt.normalize().nunique()
 
         return (
             "Study days",
-            f"{days} of {6}",
+            f"{days} of {self.period_days}",
             "Days with time recorded",
         )
 
     def most_studied(self):
-            totals = self.df_filt.groupby("subject")["minutes"].sum()
-            total_time = totals.sum()
+        totals = self.df_filt.groupby("subject")["minutes"].sum()
+        total_time = totals.sum()
 
-            if totals.empty or total_time == 0:
-                return ("Most studied", "—", "No study time recorded")
-
-            subject = totals.idxmax()
-            minutes = totals.loc[subject]
-            share = minutes / total_time
-
+        if totals.empty or total_time == 0:
             return (
                 "Most studied",
-                subject,
-                f"{self.format_minutes(minutes)} · {share:.0%} of study time",
+                "—",
+                "No study time recorded",
             )
 
-    def past_task_summary(self):
-        today = datetime.today()
+        subject = totals.idxmax()
+        minutes = totals.loc[subject]
+        share = minutes / total_time
 
-        past = self.df_filt.loc[pd.to_datetime(self.df_filt["date"]) < today]
+        return (
+            "Most studied",
+            subject,
+            f"{self.format_minutes(minutes)} · "
+            f"{share:.0%} of study time",
+        )
+
+    def past_task_summary(self):
+        today = pd.Timestamp.today().normalize()
+
+        past = self.df_filt.loc[
+            pd.to_datetime(self.df_filt["date"]) < today
+        ]
 
         return past.groupby("subject").agg(
             total_tasks=("completed", "size"),
@@ -1838,6 +2118,343 @@ class Analytics(ttk.Frame):
             f"Skipped {int(result['skipped'])} "
             f"of {int(result['total_tasks'])} past tasks",
         )
-    
+
+class TaskManager(ttk.Frame):
+    def __init__(self, notebook, parent):
+        super().__init__(
+            notebook,
+            style="Page.TFrame",
+            padding=10, relief="solid", borderwidth=2
+        )
+
+        self.parent = parent
+
+        self.columnconfigure(0, weight=3)
+        self.columnconfigure(1, weight=2)
+        self.rowconfigure(0, weight=1)
+
+        # Styles specific to this tab
+        style = ttk.Style(self)
+
+        style.configure(
+            "TaskManager.Treeview",
+            background=UI_COLORS["surface"],
+            fieldbackground=UI_COLORS["surface"],
+            foreground=UI_COLORS["text"],
+            font=(parent.ui_font, 10),
+            rowheight=30,
+            borderwidth=0,
+        )
+
+        style.configure(
+            "TaskManager.Treeview.Heading",
+            font=(parent.ui_font, 10, "bold"),
+            padding=(8, 7),
+        )
+
+        style.map(
+            "TaskManager.Treeview",
+            background=[("selected", UI_COLORS["accent"])],
+            foreground=[("selected", "#FFFFFF")],
+        )
+
+        self.make_history_panel()
+        self.make_recurring_panel()
+
+    def make_history_panel(self):
+        self.history_panel = ttk.Frame(
+            self,
+            style="Card.TFrame",
+            padding=15, relief="solid", borderwidth=2
+        )
+        self.history_panel.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+            padx=(0, 10),
+        )
+
+        self.history_panel.columnconfigure(0, weight=1)
+        self.history_panel.rowconfigure(2, weight=1)
+
+        ttk.Label(
+            self.history_panel,
+            text="Task history",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
+
+        # Search
+        search_frame = ttk.Frame(
+            self.history_panel,
+            style="Card.TFrame", relief="solid", borderwidth=2
+        )
+        search_frame.grid(
+            row=1, column=0, sticky="ew", pady=(0, 12)
+        )
+        search_frame.columnconfigure(0, weight=1)
+
+        self.search_var = tk.StringVar()
+
+        self.search_entry = ttk.Entry(
+            search_frame,
+            textvariable=self.search_var,
+            cursor="xterm",
+        )
+        self.search_entry.grid(
+            row=0, column=0, sticky="ew", padx=(0, 8)
+        )
+
+        ttk.Button(
+            search_frame,
+            text="Search",
+            cursor="hand2",
+        ).grid(row=0, column=1)
+
+        # Treeview and scrollbar
+        tree_frame = ttk.Frame(
+            self.history_panel,
+            style="Card.TFrame", relief="solid", borderwidth=2
+        )
+        tree_frame.grid(row=2, column=0, sticky="nsew")
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+
+        self.history_tree = ttk.Treeview(
+            tree_frame,
+            columns=("date", "subject", "task", "status"),
+            show="headings",
+            selectmode="browse",
+            height=8,
+            style="TaskManager.Treeview",
+        )
+
+        for column, title, width in (
+            ("date", "Date", 95),
+            ("subject", "Subject", 100),
+            ("task", "Task", 200),
+            ("status", "Status", 90),
+        ):
+            self.history_tree.heading(column, text=title)
+            self.history_tree.column(
+                column,
+                width=width,
+                minwidth=60,
+                anchor="w",
+            )
+
+        self.history_tree.grid(
+            row=0, column=0, sticky="nsew"
+        )
+
+        scrollbar = ttk.Scrollbar(
+            tree_frame,
+            orient="vertical",
+            command=self.history_tree.yview,
+        )
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        self.history_tree.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        ttk.Button(
+            self.history_panel,
+            text="Delete selected task",
+            cursor="hand2",
+        ).grid(
+            row=3, column=0, sticky="w", pady=(12, 0)
+        )
+
+    def make_recurring_panel(self):
+        self.recurring_panel = ttk.Frame(
+            self,
+            style="Card.TFrame",
+            padding=15, relief="solid", borderwidth=1
+        )
+        self.recurring_panel.grid(
+            row=0, column=1, sticky="nsew"
+        )
+
+        self.recurring_panel.columnconfigure(0, weight=1)
+        self.recurring_panel.rowconfigure(0, weight=1)
+        self.recurring_panel.rowconfigure(1, weight=1)
+        self.recurring_panel.rowconfigure(2, weight=1)
+        self.recurring_panel.rowconfigure(3, weight=1)
+        self.recurring_panel.rowconfigure(4, weight=1)
+
+
+        ttk.Label(
+            self.recurring_panel,
+            text="Recurring tasks",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 5))
+
+        ttk.Label(
+            self.recurring_panel,
+            text="Select a task to view or edit its settings.",
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="w", pady=(0, 10))
+
+        self.recurring_choice = tk.StringVar()
+
+        self.recurring_dropdown = ttk.Combobox(
+            self.recurring_panel,
+            textvariable=self.recurring_choice,
+            state="readonly",
+        )
+        self.recurring_dropdown.grid(
+            row=2, column=0, sticky="ew"
+        )
+
+        # ttk.Separator(
+        #     self.recurring_panel,
+        # ).grid(
+        #     row=3, column=0, sticky="ew", pady=15
+        # )
+
+        # Selected task details
+        self.details_frame = ttk.Frame(
+            self.recurring_panel,
+            style="Card.TFrame", relief="solid", borderwidth=2
+        )
+        self.details_frame.grid(
+            row=4, column=0, sticky="nsew"
+        )
+        # self.details_frame.columnconfigure(1, weight=1)
+        # self.details_frame.rowconfigure(0, weight=1)
+        # self.details_frame.rowconfigure(1, weight=1)
+        # self.details_frame.rowconfigure(2, weight=1)
+        # self.details_frame.rowconfigure(3, weight=1)
+        # self.details_frame.rowconfigure(4, weight=1)
+        # self.details_frame.rowconfigure(5, weight=1)
+        # self.details_frame.rowconfigure(6, weight=1)
+        # self.details_frame.rowconfigure(7, weight=1)
+        # self.details_frame.rowconfigure(8, weight=1)
+        # self.details_frame.rowconfigure(9, weight=1)
+        # self.details_frame.rowconfigure(10, weight=1)
+
+        ttk.Label(
+            self.details_frame,
+            text="Selected task",
+            style="Subject.TLabel",
+        ).grid(
+            row=0, column=0, columnspan=2,
+            sticky="w", pady=(0, 10),
+        )
+
+        self.subject_var = tk.StringVar()
+        self.task_var = tk.StringVar()
+        self.frequency_var = tk.StringVar()
+        self.cancellation_date = tk.StringVar()
+
+        ttk.Label(
+            self.details_frame,
+            text="Subject",
+        ).grid(
+            row=1, column=0, sticky="w", padx=(0, 12)
+        )
+
+        ttk.Entry(
+            self.details_frame,
+            textvariable=self.subject_var,
+            cursor="xterm",
+        ).grid(
+            row=1, column=1, sticky="ew", pady=5
+        )
+
+        ttk.Label(
+            self.details_frame,
+            text="Task",
+        ).grid(
+            row=2, column=0, sticky="w", padx=(0, 12)
+        )
+
+        ttk.Entry(
+            self.details_frame,
+            textvariable=self.task_var,
+            cursor="xterm",
+        ).grid(
+            row=2, column=1, sticky="ew", pady=5
+        )
+
+        ttk.Label(
+            self.details_frame,
+            text="Frequency",
+        ).grid(
+            row=3, column=0, sticky="w", padx=(0, 12)
+        )
+
+        ttk.Combobox(
+            self.details_frame,
+            textvariable=self.frequency_var,
+            values=("daily", "weekly"),
+            state="readonly",
+        ).grid(
+            row=3, column=1, sticky="ew", pady=5
+        )
+
+        ttk.Button(
+            self.details_frame,
+            text="Save changes",
+            style="Accent.TButton",
+            cursor="hand2",
+        ).grid(
+            row=4, column=0, columnspan=2,
+            sticky="w", pady=(10, 0),
+        )
+
+        ttk.Separator(
+            self.details_frame,
+        ).grid(
+            row=5, column=0, columnspan=2,
+            sticky="ew", pady=15,
+        )
+
+        ttk.Label(
+            self.details_frame,
+            text="Cancellations",
+            style="Subject.TLabel",
+        ).grid(
+            row=6, column=0, columnspan=2,
+            sticky="w", pady=(0, 8),
+        )
+
+        ttk.Label(
+            self.details_frame,
+            text="Canceled date",
+        ).grid(
+            row=7, column=0, sticky="w", padx=(0, 12)
+        )
+
+        self.cancellation_dropdown = ttk.Combobox(
+            self.details_frame,
+            textvariable=self.cancellation_date,
+            state="readonly",
+        )
+        self.cancellation_dropdown.grid(
+            row=7, column=1, sticky="ew", pady=5
+        )
+
+        ttk.Button(
+            self.details_frame,
+            text="Remove cancellation",
+            cursor="hand2",
+        ).grid(
+            row=8, column=0, columnspan=2,
+            sticky="w", pady=(8, 0),
+        )
+
+        # Extra vertical space goes above the delete button.
+        self.details_frame.rowconfigure(9, weight=1)
+
+        ttk.Button(
+            self.details_frame,
+            text="Delete recurring task",
+            cursor="hand2",
+        ).grid(
+            row=10, column=0, columnspan=2,
+            sticky="w", pady=(15, 0),
+        )
+
 if __name__ == "__main__":
     main()
