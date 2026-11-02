@@ -227,11 +227,17 @@ opening_query_recurring_tasks = """
     );
 """
 
+#####################
+# Root Class
+#####################
+
 class Application(tk.Tk):
     def __init__(self):
         super().__init__()
 
         configure_appearance(self)
+        self.calendars = {}
+        self.widgets = {}
 
         self.conn = sqlite3.connect("study_tracker.db")
         self.conn.row_factory = sqlite3.Row
@@ -500,6 +506,32 @@ class Application(tk.Tk):
             """, (value, id))
 
         print(f"{table} updated")
+
+    def get_start_and_end_dates(self, selection):
+        days_by_choice = {
+            "Last Week": 7,
+            "Last Month": 30,
+            "Last Year": 365,
+        }
+
+        self.period_days = days_by_choice[selection]
+
+        today = datetime.today().date()
+        self.end = (today - timedelta(days=1)).isoformat()
+        self.start = (
+            today - timedelta(days=self.period_days)
+        ).isoformat()
+
+    def filter_dates(self, start, end):
+        dates = pd.to_datetime(self.df["date"]).dt.normalize()
+
+        self.df_filt = self.df.loc[
+            dates.between(pd.Timestamp(start), pd.Timestamp(end))
+        ]
+
+#####################
+# Main Frame Classes
+#####################
 
 class Targets(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -937,7 +969,7 @@ class Timer(ttk.Frame):
     def __init__(self, new_frame, parent):
         super().__init__(
             new_frame,
-relief="solid", borderwidth=2,
+            relief="solid", borderwidth=2,
             padding=10,
             style="Card.TFrame"
         )
@@ -1135,7 +1167,7 @@ class Schedule(ttk.Frame):
         super().__init__(
             new_frame,
             padding=10,
-relief="solid", borderwidth=2,
+            relief="solid", borderwidth=2,
             style="Card.TFrame"
         )
 
@@ -1603,9 +1635,9 @@ class Visuals(ttk.Frame):
         )
 
     def update_tabs(self):
-        self.parent.analytics_tab.get_start_and_end_dates()
-        self.parent.analytics_tab.filter_dates(self.start, self.end)
-        self.plot_study((self.start, self.end))
+        self.parent.get_start_and_end_dates(self.date_option.get())
+        self.parent.filter_dates(self.parent.start, self.parent.end)
+        self.plot_study((self.parent.start, self.parent.end))
 
     def filter_and_group(self, data, dates, freq='daily'):
         start, end = map(pd.Timestamp, dates)
@@ -1653,11 +1685,13 @@ class Visuals(ttk.Frame):
     def plot_study(self, dates, total=False):
         start, end = [pd.Timestamp(date).normalize() for date in dates]
         dates = (start, end)
+        print(start, end)
 
         if end <= start + pd.DateOffset(months=1):
             freq = 'daily'
             plot_dates = pd.date_range(start, end, freq='D')
         else:
+            print(start, end)
             freq = 'weekly'
             sunday = pd.offsets.Week(weekday=6)
             plot_dates = pd.date_range(
@@ -1856,8 +1890,8 @@ class Analytics(ttk.Frame):
         self.update_tabs()
 
     def update_tabs(self):
-        self.get_start_and_end_dates()
-        self.filter_dates(self.start, self.end)
+        self.parent.get_start_and_end_dates(self.date_option.get())
+        self.parent.filter_dates(self.parent.start, self.parent.end)
         self.update_cards()
         self.update_subject_tree()
 
@@ -1879,7 +1913,7 @@ class Analytics(ttk.Frame):
             card.set_subtitle(subtitle)
 
     def update_subject_tree(self):
-        summary = self.df_filt.groupby("subject").agg(
+        summary = self.parent.df_filt.groupby("subject").agg(
             total_minutes=("minutes", "sum"),
             total_tasks=("completed", "size"),
             total_completed=("completed", "sum"),
@@ -1907,41 +1941,14 @@ class Analytics(ttk.Frame):
             if row_id not in current_ids:
                 tree.delete(row_id)
 
-    def get_start_and_end_dates(self):
-        days_by_choice = {
-            "Last Week": 7,
-            "Last Month": 30,
-            "Last Year": 365,
-        }
-
-        self.period_days = days_by_choice[self.date_option.get()]
-
-        today = datetime.today().date()
-        self.end = (today - timedelta(days=1)).isoformat()
-        self.start = (
-            today - timedelta(days=self.period_days)
-        ).isoformat()
-
-        self.parent.visuals_tab.end = (today - timedelta(days=1)).isoformat()
-        self.parent.visuals_tab.start = (
-            today - timedelta(days=self.period_days)
-        ).isoformat()
-
-    def filter_dates(self, start, end):
-        dates = pd.to_datetime(self.parent.df["date"]).dt.normalize()
-
-        self.df_filt = self.parent.df.loc[
-            dates.between(pd.Timestamp(start), pd.Timestamp(end))
-        ]
-
     def format_minutes(self, minutes):
         hours, minutes = divmod(int(minutes), 60)
         return f"{hours}h {minutes:02d}m"
 
     def get_total_study_time(self):
-        total_time = self.df_filt["minutes"].sum()
-        subjects = self.df_filt.loc[
-            self.df_filt["minutes"] > 0, "subject"
+        total_time = self.parent.df_filt["minutes"].sum()
+        subjects = self.parent.df_filt.loc[
+            self.parent.df_filt["minutes"] > 0, "subject"
         ].nunique()
 
         return (
@@ -1951,8 +1958,8 @@ class Analytics(ttk.Frame):
         )
 
     def tasks_completed(self):
-        total_tasks = len(self.df_filt)
-        completed = int(self.df_filt["completed"].eq(1).sum())
+        total_tasks = len(self.parent.df_filt)
+        completed = int(self.parent.df_filt["completed"].eq(1).sum())
         rate = completed / total_tasks if total_tasks else 0
 
         return (
@@ -1963,18 +1970,18 @@ class Analytics(ttk.Frame):
 
     def study_days(self):
         dates = pd.to_datetime(
-            self.df_filt.loc[self.df_filt["minutes"] > 0, "date"]
+            self.parent.df_filt.loc[self.parent.df_filt["minutes"] > 0, "date"]
         )
         days = dates.dt.normalize().nunique()
 
         return (
             "Study days",
-            f"{days} of {self.period_days}",
+            f"{days} of {self.parent.period_days}",
             "Days with time recorded",
         )
 
     def most_studied(self):
-        totals = self.df_filt.groupby("subject")["minutes"].sum()
+        totals = self.parent.df_filt.groupby("subject")["minutes"].sum()
         total_time = totals.sum()
 
         if totals.empty or total_time == 0:
@@ -1998,8 +2005,8 @@ class Analytics(ttk.Frame):
     def past_task_summary(self):
         today = pd.Timestamp.today().normalize()
 
-        past = self.df_filt.loc[
-            pd.to_datetime(self.df_filt["date"]) < today
+        past = self.parent.df_filt.loc[
+            pd.to_datetime(self.parent.df_filt["date"]) < today
         ]
 
         return past.groupby("subject").agg(
@@ -2190,6 +2197,105 @@ class TaskManager(ttk.Frame):
 
         self.current_dataset.search_table(self.search_text)
 
+class ProjectPage(ttk.Frame):
+    def __init__(self, notebook, parent):
+        super().__init__(
+            parent,
+            padding=15,
+            style="Page.TFrame",
+        )
+
+        self.projects = []
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        # Create a project
+        header = ttk.Frame(
+            self,
+            padding=12,
+            style="Card.TFrame",
+        )
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        header.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            header,
+            text="New project:",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, padx=(0, 8))
+
+        self.project_name = ttk.Entry(header, cursor="xterm")
+        self.project_name.grid(row=0, column=1, sticky="ew")
+        self.project_name.bind("<Return>", self.add_project)
+
+        self.add_button = ttk.Button(
+            header,
+            text="Add project",
+            command=self.add_project,
+            cursor="hand2",
+            style="Accent.TButton",
+        )
+        self.add_button.grid(row=0, column=2, padx=(8, 0))
+
+        self.project_count = ttk.Label(
+            header,
+            text="0 / 3 active projects",
+            style="Muted.TLabel",
+        )
+        self.project_count.grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(8, 0)
+        )
+
+        # Three equally sized project columns
+        self.project_frame = ttk.Frame(
+            self,
+            style="Page.TFrame",
+        )
+        self.project_frame.grid(row=1, column=0, sticky="nsew")
+        self.project_frame.rowconfigure(0, weight=1)
+
+        for column in range(3):
+            self.project_frame.columnconfigure(
+                column, weight=1, uniform="projects"
+            )
+
+    def add_project(self, event=None):
+        name = self.project_name.get().strip()
+
+        if not name or len(self.projects) >= 3:
+            return
+
+        project = ProjectCard(
+            self.project_frame,
+            name,
+            on_complete=self.complete_project,
+        )
+        self.projects.append(project)
+        self.project_name.delete(0, "end")
+        self.arrange_projects()
+
+    def complete_project(self, project):
+        self.projects.remove(project)
+        project.destroy()
+        self.arrange_projects()
+
+    def arrange_projects(self):
+        for column, project in enumerate(self.projects):
+            project.grid(
+                row=0, column=column, sticky="nsew", padx=5
+            )
+
+        count = len(self.projects)
+        self.project_count["text"] = f"{count} / 3 active projects"
+        self.add_button["state"] = (
+            "disabled" if count == 3 else "normal"
+        )
+
+#####################
+# Sub Frame Classes
+#####################
+
 class StatCard(ttk.Frame):
 
     def __init__(self, parent, title, value, subtitle=None):
@@ -2243,43 +2349,6 @@ class StatCard(ttk.Frame):
             self.subtitle_label.pack(fill="x")
         else:
             self.subtitle_label.pack_forget()
-
-class EntryPopup(ttk.Entry):
-    def __init__(self, parent, iid, column, text, **kw):
-        super().__init__(parent, **kw)
-        self.tv = parent.tree  # reference to parent window's treeview
-        self.iid = iid  # row id
-        self.column = column 
-
-        self.insert(0, text) 
-        self['exportselection'] = False  # Prevents selected text from being copied to  
-                                         # clipboard when widget loses focus
-        self.focus_force()  # Set focus to the Entry widget
-        self.select_all()   # Highlight all text within the entry widget
-        self.bind("<Return>", self.on_return) # Enter key bind
-        self.bind("<Control-a>", self.select_all) # CTRL + A key bind
-        self.bind("<Escape>", lambda *ignore: self.destroy()) # ESC key bind
-
-
-        self.column_name = parent.names[column]
-        self.dataset = parent.dataset
-        self.root = self.winfo_toplevel()
-
-    def on_return(self, event):
-        '''Insert text into treeview, and delete the entry popup'''
-        rowid = self.tv.focus()  # Find row id of the cell which was clicked
-        vals = self.tv.item(rowid, 'values')  # Returns a tuple of all values from the row with id, "rowid"
-        vals = list(vals)  # Convert the values to a list so it becomes mutable
-        user_inputted_value = self.get()
-        vals[self.column] = self.get()  # Update values with the new text from the entry widget
-        self.tv.item(rowid, values=vals)  # Update the Treeview cell with updated row values
-        self.root.update_record(rowid, self.dataset, self.column_name, user_inputted_value)
-        self.destroy()  # Destroy the Entry Widget
-        
-    def select_all(self, *ignore):
-        ''' Set selection on the whole text '''
-        self.selection_range(0, 'end')
-        return 'break' # returns 'break' to interrupt default key-bindings
 
 class TreeView(ttk.Frame):
     def __init__(self, parent, title, columns, names, default_widths):
@@ -2555,99 +2624,195 @@ class ScrollableFrame(ttk.Frame):
             width=event.width
         )
 
-class ProjectPage(ttk.Frame):
-    def __init__(self, notebook, parent):
+class MetricBar(ttk.Frame):
+    def __init__(self, parent, title, current, target, text=""):
         super().__init__(
             parent,
-            padding=15,
-            style="Page.TFrame",
+            padding=10,
+            style="StatCard.TFrame",
         )
 
-        self.projects = []
-
-        self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
-
-        # Create a project
-        header = ttk.Frame(
+        # Card heading
+        ttk.Label(
             self,
-            padding=12,
-            style="Card.TFrame",
+            text=title,
+            style="Heading.TLabel",
+        ).pack(anchor="w")
+
+        # Progress toward the target
+        self.bar = ttk.Progressbar(
+            self,
+            maximum=target,
+            value=current,
+            style="Card.Horizontal.TProgressbar",
         )
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 15))
-        header.columnconfigure(1, weight=1)
+        self.bar.pack(fill="x", pady=8)
 
         ttk.Label(
-            header,
-            text="New project:",
-            style="Heading.TLabel",
-        ).grid(row=0, column=0, padx=(0, 8))
-
-        self.project_name = ttk.Entry(header, cursor="xterm")
-        self.project_name.grid(row=0, column=1, sticky="ew")
-        self.project_name.bind("<Return>", self.add_project)
-
-        self.add_button = ttk.Button(
-            header,
-            text="Add project",
-            command=self.add_project,
-            cursor="hand2",
-            style="Accent.TButton",
-        )
-        self.add_button.grid(row=0, column=2, padx=(8, 0))
-
-        self.project_count = ttk.Label(
-            header,
-            text="0 / 3 active projects",
-            style="Muted.TLabel",
-        )
-        self.project_count.grid(
-            row=1, column=0, columnspan=3, sticky="w", pady=(8, 0)
-        )
-
-        # Three equally sized project columns
-        self.project_frame = ttk.Frame(
             self,
-            style="Page.TFrame",
+            text=f"{current} / {target} — {text}",
+            style="Muted.TLabel",
+        ).pack(anchor="w")
+
+class CalendarField(ttk.Frame):
+    def __init__(self, parent, label_text, tracking_key):
+        super().__init__(
+            parent,
+            style="Card.TFrame"
         )
-        self.project_frame.grid(row=1, column=0, sticky="nsew")
-        self.project_frame.rowconfigure(0, weight=1)
 
-        for column in range(3):
-            self.project_frame.columnconfigure(
-                column, weight=1, uniform="projects"
-            )
+        self.columnconfigure(0, weight=1)
 
-    def add_project(self, event=None):
-        name = self.project_name.get().strip()
-
-        if not name or len(self.projects) >= 3:
-            return
-
-        project = ProjectCard(
-            self.project_frame,
-            name,
-            on_complete=self.complete_project,
+        self.label = ttk.Label(
+            self,
+            text=label_text,
+            style="Muted.TLabel"
         )
-        self.projects.append(project)
-        self.project_name.delete(0, "end")
-        self.arrange_projects()
 
-    def complete_project(self, project):
-        self.projects.remove(project)
-        project.destroy()
-        self.arrange_projects()
+        self.label.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(12, 5)
+        )
 
-    def arrange_projects(self):
-        for column, project in enumerate(self.projects):
-            project.grid(
-                row=0, column=column, sticky="nsew", padx=5
-            )
+        self.calendar = DateEntry(
+            self,
+            cursor="xterm",
+            date_pattern="yyyy-mm-dd"
+        )
 
-        count = len(self.projects)
-        self.project_count["text"] = f"{count} / 3 active projects"
-        self.add_button["state"] = (
-            "disabled" if count == 3 else "normal"
+        root = self.winfo_toplevel()
+        root.calendars[tracking_key] = self.calendar
+
+        self.calendar.grid(
+            row=1,
+            column=0,
+            sticky="ew"
+        )
+
+        self.calendar.bind(
+            "<FocusOut>",
+            self.close_calendar
+        )
+
+        self.calendar.bind(
+            "<Escape>",
+            self.close_calendar
+        )
+
+    def close_calendar(self, event=None):
+        self.calendar.event_generate("<Escape>")
+
+    def get(self):
+        return self.calendar.get()
+
+class EntryField(ttk.Frame):
+
+    def __init__(self, parent, label_text, tracking_key, width=18):
+        super().__init__(
+            parent,
+            style="Card.TFrame"
+        )
+
+        self.columnconfigure(0, weight=1)
+
+        self.label = ttk.Label(
+            self,
+            text=label_text,
+            style="Muted.TLabel"
+        )
+
+        self.label.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(12, 5)
+        )
+
+        self.widget = ttk.Entry(
+            self,
+            cursor="xterm",
+            width=width
+        )
+
+        self.widget.grid(
+            row=1,
+            column=0,
+            sticky="ew"
+        )
+
+        root = self.winfo_toplevel()
+        root.widgets[tracking_key] = self.widget
+
+    def get(self):
+        return self.widget.get()
+
+    def clear(self):
+        self.widget.delete(0, tk.END)
+
+class DropdownField(ttk.Frame):
+    def __init__(
+        self,
+        parent,
+        label_text,
+        tracking_key,
+        values,
+        default=None,
+        width=18
+    ):
+        super().__init__(
+            parent,
+            style="Card.TFrame"
+        )
+
+        self.columnconfigure(0, weight=1)
+
+        self.value = tk.StringVar(
+            self,
+            value=default or ""
+        )
+
+        self.label = ttk.Label(
+            self,
+            text=label_text,
+            style="Muted.TLabel"
+        )
+
+        self.label.grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(12, 5)
+        )
+
+        self.widget = ttk.Combobox(
+            self,
+            textvariable=self.value,
+            values=values,
+            width=width,
+            state="readonly"
+        )
+
+        self.widget.grid(
+            row=1,
+            column=0,
+            sticky="ew"
+        )
+
+        root = self.winfo_toplevel()
+        root.widgets[tracking_key] = self.widget
+
+    def get(self):
+        return self.widget.get()
+
+    def set(self, value):
+        self.widget.set(value)
+
+    def bind_selection(self, function):
+        self.widget.bind(
+            "<<ComboboxSelected>>",
+            function
         )
 
 class ProjectCard(ttk.LabelFrame):
@@ -2814,35 +2979,47 @@ class ProjectCard(ttk.LabelFrame):
             else "disabled"
         )
 
-class MetricBar(ttk.Frame):
-    def __init__(self, parent, title, current, target, text=""):
-        super().__init__(
-            parent,
-            padding=10,
-            style="StatCard.TFrame",
-        )
+#####################
+# Custom Widgets
+#####################
 
-        # Card heading
-        ttk.Label(
-            self,
-            text=title,
-            style="Heading.TLabel",
-        ).pack(anchor="w")
+class EntryPopup(ttk.Entry):
+    def __init__(self, parent, iid, column, text, **kw):
+        super().__init__(parent, **kw)
+        self.tv = parent.tree  # reference to parent window's treeview
+        self.iid = iid  # row id
+        self.column = column 
 
-        # Progress toward the target
-        self.bar = ttk.Progressbar(
-            self,
-            maximum=target,
-            value=current,
-            style="Card.Horizontal.TProgressbar",
-        )
-        self.bar.pack(fill="x", pady=8)
+        self.insert(0, text) 
+        self['exportselection'] = False  # Prevents selected text from being copied to  
+                                         # clipboard when widget loses focus
+        self.focus_force()  # Set focus to the Entry widget
+        self.select_all()   # Highlight all text within the entry widget
+        self.bind("<Return>", self.on_return) # Enter key bind
+        self.bind("<Control-a>", self.select_all) # CTRL + A key bind
+        self.bind("<Escape>", lambda *ignore: self.destroy()) # ESC key bind
 
-        ttk.Label(
-            self,
-            text=f"{current} / {target} — {text}",
-            style="Muted.TLabel",
-        ).pack(anchor="w")
+
+        self.column_name = parent.names[column]
+        self.dataset = parent.dataset
+        self.root = self.winfo_toplevel()
+
+    def on_return(self, event):
+        '''Insert text into treeview, and delete the entry popup'''
+        rowid = self.tv.focus()  # Find row id of the cell which was clicked
+        vals = self.tv.item(rowid, 'values')  # Returns a tuple of all values from the row with id, "rowid"
+        vals = list(vals)  # Convert the values to a list so it becomes mutable
+        user_inputted_value = self.get()
+        vals[self.column] = self.get()  # Update values with the new text from the entry widget
+        self.tv.item(rowid, values=vals)  # Update the Treeview cell with updated row values
+        self.root.update_record(rowid, self.dataset, self.column_name, user_inputted_value)
+        self.destroy()  # Destroy the Entry Widget
+        
+    def select_all(self, *ignore):
+        ''' Set selection on the whole text '''
+        self.selection_range(0, 'end')
+        return 'break' # returns 'break' to interrupt default key-bindings
+
 
 if __name__ == "__main__":
     main()
