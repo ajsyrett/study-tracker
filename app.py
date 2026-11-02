@@ -31,8 +31,13 @@ def configure_appearance(root):
     root.configure(background=UI_COLORS["page"])
 
     style = ttk.Style(root)
+    style.theme_use("alt")
 
     # Frames
+    style.configure(
+        "TFrame",
+        background=UI_COLORS["surface"],
+    )
     style.configure(
         "Page.TFrame",
         background=UI_COLORS["page"],
@@ -48,6 +53,20 @@ def configure_appearance(root):
         background=UI_COLORS["surface"],
         borderwidth=1,
         relief="solid",
+    )
+
+    # Project cards use LabelFrame, so they need their own styles.
+    style.configure(
+        "Card.TLabelframe",
+        background=UI_COLORS["surface"],
+        borderwidth=1,
+        relief="solid",
+    )
+    style.configure(
+        "Card.TLabelframe.Label",
+        background=UI_COLORS["surface"],
+        foreground=UI_COLORS["accent"],
+        font=(family, 12, "bold"),
     )
 
     # Labels
@@ -98,7 +117,12 @@ def configure_appearance(root):
     style.configure(
         "TCheckbutton",
         background=UI_COLORS["surface"],
+        foreground=UI_COLORS["text"],
         font=(family, 10),
+    )
+    style.map(
+        "TCheckbutton",
+        background=[("active", UI_COLORS["surface"])],
     )
     style.configure(
         "TButton",
@@ -109,6 +133,13 @@ def configure_appearance(root):
         "Accent.TButton",
         font=(family, 10, "bold"),
         padding=(14, 8),
+    )
+
+    # Progress bars used by project cards and metric cards.
+    style.configure(
+        "Card.Horizontal.TProgressbar",
+        background=UI_COLORS["accent"],
+        troughcolor=UI_COLORS["page"],
     )
 
     # Notebook
@@ -279,14 +310,26 @@ class Application(tk.Tk):
         )
         self.goal_page.columnconfigure(0, weight=1)
 
-        self.timer = Timer(
+        self.timer = Targets(
             stop_watch_and_task_adder,
             self,
         )
         self.timer.grid(
             row=1,
             column=0,
-            sticky="ew",
+            sticky="nw",
+            pady=(0, 12),
+        )
+        self.timer.columnconfigure(0, weight=1)
+
+        self.timer = Timer(
+            stop_watch_and_task_adder,
+            self,
+        )
+        self.timer.grid(
+            row=2,
+            column=0,
+            sticky="nw",
         )
         self.timer.columnconfigure(0, weight=1)
 
@@ -294,17 +337,19 @@ class Application(tk.Tk):
 
         self.load_data()
 
+        self.visuals_tab = Visuals(
+            self.notebook,
+            self,
+            self.df,
+        )
+
         self.analytics_tab = Analytics(self.notebook, self)
         self.notebook.add(
             self.analytics_tab,
             text="Analytics",
         )
 
-        self.visuals_tab = Visuals(
-            self.notebook,
-            self,
-            self.df,
-        )
+
         self.notebook.add(
             self.visuals_tab,
             text="Visuals",
@@ -314,6 +359,12 @@ class Application(tk.Tk):
         self.notebook.add(
             self.task_manager,
             text="Manage Data",
+        )
+
+        self.projects = ProjectPage(self.notebook, self)
+        self.notebook.add(
+            self.projects,
+            text="Projects",
         )
 
     def load_data(self):
@@ -449,6 +500,59 @@ class Application(tk.Tk):
             """, (value, id))
 
         print(f"{table} updated")
+
+class Targets(ttk.Frame):
+    def __init__(self, canvas, parent):
+        super().__init__(
+            canvas,
+            padding=10,
+            style="Card.TFrame",relief="solid", borderwidth=2
+        )
+
+        self.task_info_frame = ttk.Frame(
+            self,
+            style="Card.TFrame",
+            relief="solid", borderwidth=1
+        )
+
+        self.task_info_frame.grid(
+            row=0,
+            column=0)
+
+        # Left column: subject label above subject entry
+        subject_frame = ttk.Frame(self.task_info_frame, style="Card.TFrame")
+        subject_frame.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        ttk.Label(
+            subject_frame,
+            text="Subject",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 5))
+
+        self.subject = ttk.Entry(
+            subject_frame,
+            cursor="xterm",
+            width=30,
+        )
+        self.subject.pack(fill="x")
+
+
+        # Right column: task label above task entry
+        task_frame = ttk.Frame(self.task_info_frame, style="Card.TFrame")
+        task_frame.pack(side="left", fill="x", expand=True, padx=(6, 0))
+
+        ttk.Label(
+            task_frame,
+            text="Task Name",
+            style="Muted.TLabel",
+        ).pack(anchor="w", pady=(0, 5))
+
+        self.task_name = ttk.Entry(
+            task_frame,
+            cursor="xterm",
+            width=30,
+        )
+        self.task_name.pack(fill="x")
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -895,7 +999,7 @@ relief="solid", borderwidth=2,
             row=1,
             column=1,
             columnspan=2,
-            sticky="ew",
+            sticky="w",
             pady=(0, 15),
         )
 
@@ -904,7 +1008,7 @@ relief="solid", borderwidth=2,
             self,
             textvariable=self.sv,
             style="Timer.TLabel",
-            font=(self.parent.ui_font, 30, "bold"),
+            font=(self.parent.ui_font, 25, "bold"),
             anchor="center"
         )
 
@@ -913,7 +1017,7 @@ relief="solid", borderwidth=2,
             column=0,
             columnspan=3,
             sticky="ew",
-            pady=(10, 20)
+            pady=(0, 15)
         )
 
         # Buttons
@@ -1622,7 +1726,13 @@ class Visuals(ttk.Frame):
         # Display the figure inside this frame.
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill='both', expand=True)
+        self.canvas.get_tk_widget().grid(
+            row=1, column=0, sticky="nsew"
+        )
+
+        # Allow the chart's row and column to expand.
+        self.rowconfigure(1, weight=1)
+        self.columnconfigure(0, weight=1)
       
 class Analytics(ttk.Frame):
     def __init__(self, notebook, parent):
@@ -1809,6 +1919,11 @@ class Analytics(ttk.Frame):
         today = datetime.today().date()
         self.end = (today - timedelta(days=1)).isoformat()
         self.start = (
+            today - timedelta(days=self.period_days)
+        ).isoformat()
+
+        self.parent.visuals_tab.end = (today - timedelta(days=1)).isoformat()
+        self.parent.visuals_tab.start = (
             today - timedelta(days=self.period_days)
         ).isoformat()
 
@@ -2439,6 +2554,295 @@ class ScrollableFrame(ttk.Frame):
             self.canvas_window,
             width=event.width
         )
+
+class ProjectPage(ttk.Frame):
+    def __init__(self, notebook, parent):
+        super().__init__(
+            parent,
+            padding=15,
+            style="Page.TFrame",
+        )
+
+        self.projects = []
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        # Create a project
+        header = ttk.Frame(
+            self,
+            padding=12,
+            style="Card.TFrame",
+        )
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        header.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            header,
+            text="New project:",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, padx=(0, 8))
+
+        self.project_name = ttk.Entry(header, cursor="xterm")
+        self.project_name.grid(row=0, column=1, sticky="ew")
+        self.project_name.bind("<Return>", self.add_project)
+
+        self.add_button = ttk.Button(
+            header,
+            text="Add project",
+            command=self.add_project,
+            cursor="hand2",
+            style="Accent.TButton",
+        )
+        self.add_button.grid(row=0, column=2, padx=(8, 0))
+
+        self.project_count = ttk.Label(
+            header,
+            text="0 / 3 active projects",
+            style="Muted.TLabel",
+        )
+        self.project_count.grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(8, 0)
+        )
+
+        # Three equally sized project columns
+        self.project_frame = ttk.Frame(
+            self,
+            style="Page.TFrame",
+        )
+        self.project_frame.grid(row=1, column=0, sticky="nsew")
+        self.project_frame.rowconfigure(0, weight=1)
+
+        for column in range(3):
+            self.project_frame.columnconfigure(
+                column, weight=1, uniform="projects"
+            )
+
+    def add_project(self, event=None):
+        name = self.project_name.get().strip()
+
+        if not name or len(self.projects) >= 3:
+            return
+
+        project = ProjectCard(
+            self.project_frame,
+            name,
+            on_complete=self.complete_project,
+        )
+        self.projects.append(project)
+        self.project_name.delete(0, "end")
+        self.arrange_projects()
+
+    def complete_project(self, project):
+        self.projects.remove(project)
+        project.destroy()
+        self.arrange_projects()
+
+    def arrange_projects(self):
+        for column, project in enumerate(self.projects):
+            project.grid(
+                row=0, column=column, sticky="nsew", padx=5
+            )
+
+        count = len(self.projects)
+        self.project_count["text"] = f"{count} / 3 active projects"
+        self.add_button["state"] = (
+            "disabled" if count == 3 else "normal"
+        )
+
+class ProjectCard(ttk.LabelFrame):
+    def __init__(self, parent, name, on_complete):
+        super().__init__(
+            parent,
+            text=name,
+            padding=12,
+            style="Card.TLabelframe",
+        )
+
+        self.milestones = []
+
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(4, weight=1)
+
+        # Progress
+        self.progress = ttk.Progressbar(
+            self,
+            maximum=100,
+            style="Card.Horizontal.TProgressbar",
+        )
+        self.progress.grid(row=0, column=0, sticky="ew")
+
+        self.progress_text = ttk.Label(
+            self,
+            text="0 / 0 milestones completed",
+            style="Muted.TLabel",
+        )
+        self.progress_text.grid(
+            row=1, column=0, sticky="w", pady=(6, 15)
+        )
+
+        # Add a milestone
+        ttk.Label(
+            self,
+            text="New milestone:",
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, sticky="w")
+
+        entry_frame = ttk.Frame(self, style="Card.TFrame")
+        entry_frame.grid(
+            row=3, column=0, sticky="ew", pady=(5, 10)
+        )
+        entry_frame.columnconfigure(0, weight=1)
+
+        self.milestone_name = ttk.Entry(
+            entry_frame, width=15, cursor="xterm"
+        )
+        self.milestone_name.grid(row=0, column=0, sticky="ew")
+        self.milestone_name.bind("<Return>", self.add_milestone)
+
+        ttk.Button(
+            entry_frame,
+            text="Add",
+            command=self.add_milestone,
+            cursor="hand2",
+        ).grid(row=0, column=1, padx=(6, 0))
+
+        # Canvas is a tk widget: set its background directly.
+        self.canvas = tk.Canvas(
+            self,
+            background=UI_COLORS["surface"],
+            highlightthickness=0,
+            borderwidth=0,
+            width=1,
+        )
+        self.canvas.grid(row=4, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(
+            self,
+            orient="vertical",
+            command=self.canvas.yview,
+        )
+        scrollbar.grid(row=4, column=1, sticky="ns")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.milestone_frame = ttk.Frame(
+            self.canvas,
+            style="Card.TFrame",
+        )
+        self.milestone_frame.columnconfigure(1, weight=1)
+
+        self.canvas_window = self.canvas.create_window(
+            (0, 0),
+            window=self.milestone_frame,
+            anchor="nw",
+        )
+
+        self.milestone_frame.bind(
+            "<Configure>",
+            lambda event: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            ),
+        )
+        self.canvas.bind("<Configure>", self.resize_milestones)
+
+        self.complete_button = ttk.Button(
+            self,
+            text="Complete project",
+            command=lambda: on_complete(self),
+            state="disabled",
+            cursor="hand2",
+            style="Accent.TButton",
+        )
+        self.complete_button.grid(
+            row=5, column=0, sticky="ew", pady=(12, 0)
+        )
+
+    def add_milestone(self, event=None):
+        title = self.milestone_name.get().strip()
+
+        if not title:
+            return
+
+        completed = tk.BooleanVar(self, value=False)
+        self.milestones.append(completed)
+        row = len(self.milestones) - 1
+
+        ttk.Checkbutton(
+            self.milestone_frame,
+            variable=completed,
+            command=self.update_progress,
+            cursor="hand2",
+        ).grid(row=row, column=0, sticky="nw", pady=5)
+
+        ttk.Label(
+            self.milestone_frame,
+            text=title,
+            style="TLabel",
+            wraplength=max(50, self.canvas.winfo_width() - 40),
+        ).grid(row=row, column=1, sticky="nw", pady=5)
+
+        self.milestone_name.delete(0, "end")
+        self.update_progress()
+
+    def resize_milestones(self, event):
+        self.canvas.itemconfigure(
+            self.canvas_window, width=event.width
+        )
+
+        for widget in self.milestone_frame.winfo_children():
+            if isinstance(widget, ttk.Label):
+                widget.configure(
+                    wraplength=max(50, event.width - 40)
+                )
+
+    def update_progress(self):
+        total = len(self.milestones)
+        completed = sum(
+            variable.get() for variable in self.milestones
+        )
+
+        self.progress["value"] = (
+            completed / total * 100 if total else 0
+        )
+        self.progress_text["text"] = (
+            f"{completed} / {total} milestones completed"
+        )
+
+        self.complete_button["state"] = (
+            "normal"
+            if total and completed == total
+            else "disabled"
+        )
+
+class MetricBar(ttk.Frame):
+    def __init__(self, parent, title, current, target, text=""):
+        super().__init__(
+            parent,
+            padding=10,
+            style="StatCard.TFrame",
+        )
+
+        # Card heading
+        ttk.Label(
+            self,
+            text=title,
+            style="Heading.TLabel",
+        ).pack(anchor="w")
+
+        # Progress toward the target
+        self.bar = ttk.Progressbar(
+            self,
+            maximum=target,
+            value=current,
+            style="Card.Horizontal.TProgressbar",
+        )
+        self.bar.pack(fill="x", pady=8)
+
+        ttk.Label(
+            self,
+            text=f"{current} / {target} — {text}",
+            style="Muted.TLabel",
+        ).pack(anchor="w")
 
 if __name__ == "__main__":
     main()
