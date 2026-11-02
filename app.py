@@ -3020,6 +3020,161 @@ class EntryPopup(ttk.Entry):
         self.selection_range(0, 'end')
         return 'break' # returns 'break' to interrupt default key-bindings
 
+class WeeklyTargetForm(ttk.Frame):
+    def __init__(self, parent, subjects, projects, on_add=None):
+        super().__init__(parent, style="Card.TFrame", padding=12)
+
+        # Lists of subject and project names.
+        self.choices = {
+            "subject": list(subjects),
+            "project": list(projects),
+        }
+        self.on_add = on_add
+
+        self.target_type = tk.StringVar(value="subject")
+        self.selection = tk.StringVar()
+        self.amount = tk.StringVar(value="120")
+        self.measure = tk.StringVar(value="Minutes")
+        self.preview = tk.StringVar()
+
+        # Let the subject/project dropdown take any extra width.
+        self.columnconfigure(1, weight=1)
+
+        ttk.Label(
+            self,
+            text="Weekly target",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 12))
+
+        self.choice_label = ttk.Label(self, text="Choose subject")
+
+        for column, label in enumerate([
+            ttk.Label(self, text="Apply to"),
+            self.choice_label,
+            ttk.Label(self, text="Target"),
+            ttk.Label(self, text="Measure"),
+        ]):
+            label.grid(
+                row=1, column=column, sticky="w",
+                padx=(0, 10), pady=(0, 4),
+            )
+
+        # Both radio buttons share a variable, so only one can be selected.
+        radio_frame = ttk.Frame(self, style="Card.TFrame")
+        radio_frame.grid(row=2, column=0, sticky="w", padx=(0, 12))
+
+        for column, name in enumerate(("Subject", "Project")):
+            ttk.Radiobutton(
+                radio_frame,
+                text=name,
+                variable=self.target_type,
+                value=name.lower(),
+                command=self.update_choices,
+                cursor="hand2",
+            ).grid(row=0, column=column, padx=(0, 8))
+
+        self.choice_box = ttk.Combobox(
+            self,
+            textvariable=self.selection,
+            state="readonly",
+            width=20,
+        )
+        self.choice_box.grid(
+            row=2, column=1, sticky="ew", padx=(0, 10)
+        )
+
+        ttk.Spinbox(
+            self,
+            from_=1,
+            to=10080,
+            textvariable=self.amount,
+            width=6,
+            cursor="xterm",
+        ).grid(row=2, column=2, padx=(0, 10))
+
+        ttk.Combobox(
+            self,
+            textvariable=self.measure,
+            values=("Minutes", "Tasks completed"),
+            state="readonly",
+            width=16,
+        ).grid(row=2, column=3, padx=(0, 10))
+
+        ttk.Button(
+            self,
+            text="Add target",
+            command=self.add_target,
+            cursor="hand2",
+        ).grid(row=2, column=4)
+
+        ttk.Label(
+            self,
+            textvariable=self.preview,
+            style="Muted.TLabel",
+        ).grid(
+            row=3, column=0, columnspan=5,
+            sticky="w", pady=(10, 0),
+        )
+
+        # Refresh the sentence whenever an input changes.
+        for variable in (self.selection, self.amount, self.measure):
+            variable.trace_add("write", self.update_preview)
+
+        self.update_choices()
+
+    def update_choices(self):
+        target_type = self.target_type.get()
+        choices = self.choices[target_type]
+
+        self.choice_label.configure(text=f"Choose {target_type}")
+        self.choice_box.configure(values=choices)
+        self.selection.set(choices[0] if choices else "")
+
+    def update_preview(self, *_):
+        name = self.selection.get()
+        amount = self.amount.get()
+
+        if not name:
+            self.preview.set(f"Choose a {self.target_type.get()}.")
+        elif self.measure.get() == "Minutes":
+            self.preview.set(
+                f"Spend {amount} minutes on {name} this week."
+            )
+        else:
+            self.preview.set(
+                f"Complete {amount} tasks for {name} this week."
+            )
+
+    def add_target(self):
+        # Validate typed input as well as values chosen with the arrows.
+        name = self.selection.get()
+        if not name:
+            self.preview.set("Choose a subject or project first.")
+            return
+
+        try:
+            amount = int(self.amount.get())
+            if amount <= 0:
+                raise ValueError
+        except ValueError:
+            self.preview.set("Enter a positive whole number.")
+            return
+
+        target = {
+            "type": self.target_type.get(),
+            "name": name,
+            "target": amount,
+            "metric": (
+                "minutes"
+                if self.measure.get() == "Minutes"
+                else "completed"
+            ),
+        }
+
+        # Pass the target to the app's saving/progress-bar method.
+        if self.on_add is not None:
+            self.on_add(target)
+
 
 if __name__ == "__main__":
     main()
