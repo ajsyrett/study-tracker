@@ -316,17 +316,17 @@ class Application(tk.Tk):
         )
         self.goal_page.columnconfigure(0, weight=1)
 
-        self.timer = Targets(
+        self.targets = Targets(
             stop_watch_and_task_adder,
             self,
         )
-        self.timer.grid(
+        self.targets.grid(
             row=1,
             column=0,
-            sticky="nw",
+            sticky="ew",
             pady=(0, 12),
         )
-        self.timer.columnconfigure(0, weight=1)
+        self.targets.columnconfigure(0, weight=1)
 
         self.timer = Timer(
             stop_watch_and_task_adder,
@@ -534,64 +534,190 @@ class Application(tk.Tk):
 #####################
 
 class Targets(ttk.Frame):
-    def __init__(self, canvas, parent):
+    def __init__(self, parent, on_add=None):
         super().__init__(
-            canvas,
-            padding=10,
-            style="Card.TFrame",relief="solid", borderwidth=2
+            parent,
+            style="Card.TFrame",
+            padding=12,
+            relief="solid",
+            borderwidth=1
         )
 
-        self.task_info_frame = ttk.Frame(
+        self.on_add = on_add
+
+        # Temporary data
+        self.subjects = ["French", "Python", "SQL"]
+        self.projects = ["Finish App", "Do Homework"]
+
+        # Variables
+        self.choice = tk.StringVar(value="subject")
+        self.amount = tk.StringVar(value="120")
+
+        # ==========================================
+        # Header
+        # ==========================================
+
+        ttk.Label(
+            self,
+            text="Weekly Target",
+            style="Heading.TLabel"
+        ).grid(
+            row=0,
+            column=0,
+            sticky="w",
+            pady=(0, 5)
+        )
+
+        # ==========================================
+        # Weekly Target Form
+        # ==========================================
+
+        self.week_targets = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid", borderwidth=1
+            relief="solid",
+            borderwidth=1
         )
 
-        self.task_info_frame.grid(
-            row=0,
-            column=0)
+        self.week_targets.grid(
+            row=1,
+            column=0,
+            sticky="ew"
+        )
 
-        # Left column: subject label above subject entry
-        subject_frame = ttk.Frame(self.task_info_frame, style="Card.TFrame")
-        subject_frame.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        # ==========================================
+        # Apply To
+        # ==========================================
 
-        ttk.Label(
-            subject_frame,
+        radio_frame = ttk.Frame(
+            self.week_targets,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=1
+        )
+        
+        radio_frame.pack(side='left', padx=(0, 6),pady=(0, 5))
+
+        # Everything inside radio_frame uses pack().
+        radio_label = ttk.Label(
+            radio_frame,
+            text="Apply To",
+            style="Muted.TLabel"
+        )
+        
+        radio_label.pack(anchor="w", pady=(5, 5))
+
+        # Separate frame lets us pack the two
+        # radio buttons next to each other.
+        radio_button_container = ttk.Frame(
+            radio_frame,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=1
+        )
+
+        radio_button_container.pack(
+            anchor="w"
+        )
+
+        subject_button = ttk.Radiobutton(
+            radio_button_container,
             text="Subject",
-            style="Muted.TLabel",
-        ).pack(anchor="w", pady=(0, 5))
-
-        self.subject = ttk.Entry(
-            subject_frame,
-            cursor="xterm",
-            width=30,
+            variable=self.choice,
+            value="subject",
+            cursor="hand2"
         )
-        self.subject.pack(fill="x")
+        
+        subject_button.pack(side="left", padx=(0, 8))
 
-
-        # Right column: task label above task entry
-        task_frame = ttk.Frame(self.task_info_frame, style="Card.TFrame")
-        task_frame.pack(side="left", fill="x", expand=True, padx=(6, 0))
-
-        ttk.Label(
-            task_frame,
-            text="Task Name",
-            style="Muted.TLabel",
-        ).pack(anchor="w", pady=(0, 5))
-
-        self.task_name = ttk.Entry(
-            task_frame,
-            cursor="xterm",
-            width=30,
+        project_button = ttk.Radiobutton(
+            radio_button_container,
+            text="Project",
+            variable=self.choice,
+            value="project",
+            cursor="hand2"
         )
-        self.task_name.pack(fill="x")
+        
+        project_button.pack(side="left")
+
+        # ==========================================
+        # Subject / Project Choice
+        # ==========================================
+
+        self.target_choice = DropdownField(
+            self.week_targets,
+            "Choose Subject",
+            "target_choice",
+            self.subjects
+        )
+        
+        self.target_choice.pack(side='left', padx=(0, 6),pady=(0, 5))
+        # ==========================================
+        # Target Amount
+        # ==========================================
+
+        amount_frame = ttk.Frame(
+            self.week_targets,
+            style="Card.TFrame"
+        )
+        
+        amount_frame.pack(side='left', padx=(0, 6),pady=(0, 5))
+        # Again, pack is fine here because all children
+        # of amount_frame use pack().
+        amount_lablel = ttk.Label(
+            amount_frame,
+            text="Target",
+            style="Muted.TLabel"
+        )
+        
+        amount_lablel.pack(anchor="w", pady=(5, 5))
+
+        self.amount_widget = ttk.Spinbox(
+            amount_frame,
+            from_=1,
+            to=10080,
+            textvariable=self.amount,
+            width=8,
+            cursor="xterm"
+        )
+
+        self.amount_widget.pack(anchor="w")
+
+        # ==========================================
+        # Measure
+        # ==========================================
+
+        self.measure = DropdownField(
+            self.week_targets,
+            "Measure",
+            "measuring",
+            ["Minutes", "Hours", "Tasks"]
+        ).pack(side='left', padx=(0, 6),pady=(0, 5))
+
+        # ==========================================
+        # Add Target
+        # ==========================================
+
+        self.add_button = ttk.Button(
+            self,
+            cursor="hand2",
+            text="Add Target",
+            style="Accent.TButton"
+        )
+
+        self.add_button.grid(
+            row=2,
+            column=0,
+            sticky="w",
+            pady=(12, 0)
+        )
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
         super().__init__(
             canvas,
             padding=10,
-            style="Card.TFrame",relief="solid", borderwidth=2
+            style="Card.TFrame",relief="solid", borderwidth=1
         )
 
         self.parent = parent
@@ -1175,6 +1301,12 @@ class Schedule(ttk.Frame):
         self.tasks = parent.tasks
         self.day_choice = None
 
+        task_label = ttk.Label(
+            self,
+            text="Create Task",
+            style="Heading.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 5))
+
         # ==========================================
         # Subject / Task Frame
         # ==========================================
@@ -1186,62 +1318,22 @@ class Schedule(ttk.Frame):
         )
 
         self.task_info_frame.grid(
-            row=0,
+            row=1,
             column=0,
             sticky="ew"
         )
 
         # Subject
-        ttk.Label(
-            self.task_info_frame,
-            text="Subject",
-            style="Muted.TLabel"
-        ).grid(
-            row=0,
-            column=0,
-            sticky="w",
-            padx=(0, 6),
-            pady=(0, 5)
-        )
+        EntryField(self.task_info_frame, "Subject", "new_task_subject_input")\
+            .pack(side='left',padx=(0, 6),pady=(0, 5))
 
-        self.subject = ttk.Entry(
-            self.task_info_frame,
-            cursor="xterm",
-            width=30,
-        )
-
-        self.subject.grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            padx=(0, 6)
-        )
+        # Project
+        EntryField(self.task_info_frame, "Project", "new_task_project_input")\
+            .pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # Task
-        ttk.Label(
-            self.task_info_frame,
-            text="Task Name",
-            style="Muted.TLabel"
-        ).grid(
-            row=0,
-            column=1,
-            sticky="w",
-            padx=(6, 0),
-            pady=(0, 5)
-        )
-
-        self.task_name = ttk.Entry(
-            self.task_info_frame,
-            cursor="xterm",
-            width=30
-        )
-
-        self.task_name.grid(
-            row=1,
-            column=1,
-            sticky="ew",
-            padx=(6, 0)
-        )
+        EntryField(self.task_info_frame, "Task", "new_task")\
+            .pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # ==========================================
         # Recurrence Frame
@@ -1254,7 +1346,7 @@ class Schedule(ttk.Frame):
         )
 
         self.recurrence_frame.grid(
-            row=1,
+            row=2,
             column=0,
             sticky="ew",
             pady=(10, 0)
@@ -1268,45 +1360,16 @@ class Schedule(ttk.Frame):
             )
 
         # Frequency
-        ttk.Label(
-            self.recurrence_frame,
-            text="Task Frequency",
-            style="Muted.TLabel"
-        ).grid(
-            row=0,
-            column=0,
-            sticky="w",
-            padx=(0, 5),
-            pady=(0, 5)
-        )
-
-        self.frequency_choice = tk.StringVar(
-            self.recurrence_frame,
-            value="One Off"
-        )
-
-        self.frequency_dropdown = ttk.Combobox(
-            self.recurrence_frame,
-            textvariable=self.frequency_choice,
-            values=["One Off", "Daily", "Weekly"],
-            state="readonly",
-            width=12
-        )
-
-        self.frequency_dropdown.grid(
-            row=1,
-            column=0,
-            sticky="ew",
-            padx=(0, 5)
-        )
+        DropdownField(self.recurrence_frame, "Task Frequency", 'frequency', ["One Off", "Daily", "Weekly"], default="One Off")\
+            .pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # Initial One-Off date field
         self.create_one_off_fields()
 
-        self.frequency_dropdown.bind(
-            "<<ComboboxSelected>>",
-            self.frequency_adjustment
-        )
+        # self.frequency_dropdown.bind(
+        #     "<<ComboboxSelected>>",
+        #     self.frequency_adjustment
+        # )
 
         # ==========================================
         # Submit / Error Frame
@@ -1314,14 +1377,15 @@ class Schedule(ttk.Frame):
 
         self.submit_frame = ttk.Frame(
             self,
-            style="Card.TFrame"
+            style="Card.TFrame",
+            relief="solid", borderwidth=1
         )
 
         self.submit_frame.grid(
-            row=2,
+            row=3,
             column=0,
             sticky="w",
-            pady=(20, 0)
+            pady=(12, 0)
         )
 
         self.error_text = tk.StringVar()
@@ -1382,137 +1446,25 @@ class Schedule(ttk.Frame):
         self.start_date = None
         self.end_date = None
 
-        self.date_label = ttk.Label(
-            self.recurrence_frame,
-            text="Choose Date",
-            style="Muted.TLabel"
-        )
-
-        self.date_label.grid(
-            row=0,
-            column=1,
-            sticky="w",
-            padx=(0, 5),
-            pady=(12, 5)
-        )
-
-        self.calendar = DateEntry(
-            self.recurrence_frame,
-            cursor="xterm",
-            date_pattern="yyyy-mm-dd"
-        )
-
-        self.calendar.grid(
-            row=1,
-            column=1,
-            sticky="ew",
-            padx=(10, 0)
-        )
+        CalendarField(self.recurrence_frame, "Choose Date", 'one_off')\
+            .pack(side='left', padx=(0, 6),pady=(0, 5))
 
     def create_daily_fields(self):
         self.day_choice = None
         self.calendar = None
 
-        # Start Date
-        self.start_date_label = ttk.Label(
-            self.recurrence_frame,
-            text="Start Date",
-            style="Muted.TLabel"
-        )
+        CalendarField(self.recurrence_frame, "Choose Start Date", 'start_date')\
+            .pack(side='left', padx=(0, 6),pady=(0, 5))
 
-        self.start_date_label.grid(
-            row=0,
-            column=1,
-            sticky="w",
-            padx=(0, 5),
-            pady=(12, 5)
-        )
+        CalendarField(self.recurrence_frame, "End Date", 'end_date')\
+            .pack(side='left', padx=(0, 6),pady=(0, 5))
 
-        self.start_date = DateEntry(
-            self.recurrence_frame,
-            cursor="xterm",
-            date_pattern="yyyy-mm-dd"
-        )
-
-        self.start_date.grid(
-            row=1,
-            column=1,
-            sticky="ew",
-            padx=(10, 0)
-        )
-
-        # End Date
-        self.end_date_label = ttk.Label(
-            self.recurrence_frame,
-            text="End Date",
-            style="Muted.TLabel"
-        )
-
-        self.end_date_label.grid(
-            row=0,
-            column=2,
-            sticky="w",
-            padx=(0, 5),
-            pady=(12, 5)
-        )
-
-        self.end_date = DateEntry(
-            self.recurrence_frame,
-            cursor="xterm",
-            date_pattern="yyyy-mm-dd"
-        )
-
-        self.end_date.grid(
-            row=1,
-            column=2,
-            sticky="ew",
-            padx=(10, 0)
-        )
 
     def create_weekly_fields(self):
         self.calendar = None
-
-        # Day
-        self.day_label = ttk.Label(
-            self.recurrence_frame,
-            text="Choose Day",
-            style="Muted.TLabel"
-        )
-
-        self.day_label.grid(
-            row=0,
-            column=3,
-            sticky="w",
-            padx=(10, 0),
-            pady=(12, 5)
-        )
-
-        self.day_choice = tk.StringVar(
-            self.recurrence_frame,
-            value="Friday"
-        )
-
-        self.day_dropdown = ttk.Combobox(
-            self.recurrence_frame,
-            textvariable=self.day_choice,
-            values=[
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-                "Sunday"
-            ],
-            state="readonly"
-        )
-
-        self.day_dropdown.grid(
-            row=1,
-            column=3,
-            sticky="ew",
-            padx=(10, 0)
-        )
+        days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+        DropdownField(self.recurrence_frame, "Choose Day", 'day_of_week', days, default="Friday")\
+            .pack(side='left',padx=(0, 5), pady=(12, 5))
 
         self.create_daily_fields()
 
@@ -2658,7 +2610,8 @@ class CalendarField(ttk.Frame):
     def __init__(self, parent, label_text, tracking_key):
         super().__init__(
             parent,
-            style="Card.TFrame"
+            style="Card.TFrame",
+            relief="solid", borderwidth=1,
         )
 
         self.columnconfigure(0, weight=1)
@@ -2673,7 +2626,7 @@ class CalendarField(ttk.Frame):
             row=0,
             column=0,
             sticky="w",
-            pady=(12, 5)
+            pady=(5, 5)
         )
 
         self.calendar = DateEntry(
@@ -2712,7 +2665,8 @@ class EntryField(ttk.Frame):
     def __init__(self, parent, label_text, tracking_key, width=18):
         super().__init__(
             parent,
-            style="Card.TFrame"
+            style="Card.TFrame",
+            relief="solid", borderwidth=1,
         )
 
         self.columnconfigure(0, weight=1)
@@ -2727,7 +2681,7 @@ class EntryField(ttk.Frame):
             row=0,
             column=0,
             sticky="w",
-            pady=(12, 5)
+            pady=(5, 5)
         )
 
         self.widget = ttk.Entry(
@@ -2763,7 +2717,8 @@ class DropdownField(ttk.Frame):
     ):
         super().__init__(
             parent,
-            style="Card.TFrame"
+            style="Card.TFrame",
+            relief="solid", borderwidth=1,
         )
 
         self.columnconfigure(0, weight=1)
@@ -2783,7 +2738,7 @@ class DropdownField(ttk.Frame):
             row=0,
             column=0,
             sticky="w",
-            pady=(12, 5)
+            pady=(5, 5)
         )
 
         self.widget = ttk.Combobox(
@@ -3019,162 +2974,6 @@ class EntryPopup(ttk.Entry):
         ''' Set selection on the whole text '''
         self.selection_range(0, 'end')
         return 'break' # returns 'break' to interrupt default key-bindings
-
-class WeeklyTargetForm(ttk.Frame):
-    def __init__(self, parent, subjects, projects, on_add=None):
-        super().__init__(parent, style="Card.TFrame", padding=12)
-
-        # Lists of subject and project names.
-        self.choices = {
-            "subject": list(subjects),
-            "project": list(projects),
-        }
-        self.on_add = on_add
-
-        self.target_type = tk.StringVar(value="subject")
-        self.selection = tk.StringVar()
-        self.amount = tk.StringVar(value="120")
-        self.measure = tk.StringVar(value="Minutes")
-        self.preview = tk.StringVar()
-
-        # Let the subject/project dropdown take any extra width.
-        self.columnconfigure(1, weight=1)
-
-        ttk.Label(
-            self,
-            text="Weekly target",
-            style="Heading.TLabel",
-        ).grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 12))
-
-        self.choice_label = ttk.Label(self, text="Choose subject")
-
-        for column, label in enumerate([
-            ttk.Label(self, text="Apply to"),
-            self.choice_label,
-            ttk.Label(self, text="Target"),
-            ttk.Label(self, text="Measure"),
-        ]):
-            label.grid(
-                row=1, column=column, sticky="w",
-                padx=(0, 10), pady=(0, 4),
-            )
-
-        # Both radio buttons share a variable, so only one can be selected.
-        radio_frame = ttk.Frame(self, style="Card.TFrame")
-        radio_frame.grid(row=2, column=0, sticky="w", padx=(0, 12))
-
-        for column, name in enumerate(("Subject", "Project")):
-            ttk.Radiobutton(
-                radio_frame,
-                text=name,
-                variable=self.target_type,
-                value=name.lower(),
-                command=self.update_choices,
-                cursor="hand2",
-            ).grid(row=0, column=column, padx=(0, 8))
-
-        self.choice_box = ttk.Combobox(
-            self,
-            textvariable=self.selection,
-            state="readonly",
-            width=20,
-        )
-        self.choice_box.grid(
-            row=2, column=1, sticky="ew", padx=(0, 10)
-        )
-
-        ttk.Spinbox(
-            self,
-            from_=1,
-            to=10080,
-            textvariable=self.amount,
-            width=6,
-            cursor="xterm",
-        ).grid(row=2, column=2, padx=(0, 10))
-
-        ttk.Combobox(
-            self,
-            textvariable=self.measure,
-            values=("Minutes", "Tasks completed"),
-            state="readonly",
-            width=16,
-        ).grid(row=2, column=3, padx=(0, 10))
-
-        ttk.Button(
-            self,
-            text="Add target",
-            command=self.add_target,
-            cursor="hand2",
-        ).grid(row=2, column=4)
-
-        ttk.Label(
-            self,
-            textvariable=self.preview,
-            style="Muted.TLabel",
-        ).grid(
-            row=3, column=0, columnspan=5,
-            sticky="w", pady=(10, 0),
-        )
-
-        # Refresh the sentence whenever an input changes.
-        for variable in (self.selection, self.amount, self.measure):
-            variable.trace_add("write", self.update_preview)
-
-        self.update_choices()
-
-    def update_choices(self):
-        target_type = self.target_type.get()
-        choices = self.choices[target_type]
-
-        self.choice_label.configure(text=f"Choose {target_type}")
-        self.choice_box.configure(values=choices)
-        self.selection.set(choices[0] if choices else "")
-
-    def update_preview(self, *_):
-        name = self.selection.get()
-        amount = self.amount.get()
-
-        if not name:
-            self.preview.set(f"Choose a {self.target_type.get()}.")
-        elif self.measure.get() == "Minutes":
-            self.preview.set(
-                f"Spend {amount} minutes on {name} this week."
-            )
-        else:
-            self.preview.set(
-                f"Complete {amount} tasks for {name} this week."
-            )
-
-    def add_target(self):
-        # Validate typed input as well as values chosen with the arrows.
-        name = self.selection.get()
-        if not name:
-            self.preview.set("Choose a subject or project first.")
-            return
-
-        try:
-            amount = int(self.amount.get())
-            if amount <= 0:
-                raise ValueError
-        except ValueError:
-            self.preview.set("Enter a positive whole number.")
-            return
-
-        target = {
-            "type": self.target_type.get(),
-            "name": name,
-            "target": amount,
-            "metric": (
-                "minutes"
-                if self.measure.get() == "Minutes"
-                else "completed"
-            ),
-        }
-
-        # Pass the target to the app's saving/progress-bar method.
-        if self.on_add is not None:
-            self.on_add(target)
-
 
 if __name__ == "__main__":
     main()
