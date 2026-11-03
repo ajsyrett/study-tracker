@@ -467,11 +467,17 @@ class Application(tk.Tk):
        weekly_targets = pd.DataFrame([dict(row) for row in rows])
 
        rows = self.conn.execute("SELECT * FROM projects").fetchall()
+       self.active_project_records = [row for row in rows if row['completed']==0]
+       self.active_project_ids = [row['id'] for row in self.active_project_records]
        projects = pd.DataFrame([dict(row) for row in rows])
 
        rows = self.conn.execute("SELECT * FROM milestones").fetchall()
        milestones = pd.DataFrame([dict(row) for row in rows])
+       self.active_milestones = [row for row in rows if row['project_id'] in projects]
 
+       self.milestone_record_lookup = defaultdict(list)
+       for record in self.active_milestones:
+           self.milestone_record_lookup[record['project_id']].append(record['project_id'])
 
        self.data_lookup = {
            'sessions':sessions,
@@ -495,12 +501,6 @@ class Application(tk.Tk):
 
        active_milestones = milestones.merge(active_projects, left_on='project_id', right_on='id', suffixes=('_milestone','_projects'))
 
-       self.milestone_lookup = (
-            active_milestones.groupby("project_id")["id_milestone"]
-            .apply(list)
-            .to_dict()
-        )
-
        def get_metric_column(row):
 
            metric = row['metric']
@@ -515,10 +515,43 @@ class Application(tk.Tk):
 
        self.target_subjects = combined_df
 
+    def insert_project(self, name, completed=0):
+        self.cursor.execute(
+            """
+            INSERT INTO projects (
+                name_projects,
+                completed_projects
+            )
+            VALUES (?, ?)
+            """,
+            (name, completed)
+        )
+
+        self.conn.commit()
+
+        return self.cursor.lastrowid
+
     def change_stats_period(self, event=None):
         period = self.stats_period.get()
         self.statistics_tab.set_period(period)
         self.visuals_tab.set_period(period)
+
+    def insert_milestone(self, project_id, name, completed=0):
+        self.cursor.execute(
+            """
+            INSERT INTO milestones (
+                project_id,
+                name_milestone,
+                completed_milestone
+            )
+            VALUES (?, ?, ?)
+            """,
+            (project_id, name, completed)
+        )
+
+        self.conn.commit()
+
+        return self.cursor.lastrowid
 
     def retrieve_records(self, date):
 
@@ -2299,7 +2332,7 @@ class ProjectPage(ttk.Frame):
         )
 
         self.parent = parent
-        self.projects = []
+        self.projects = {}
         self.existing_projects = self.parent.existing_projects
 
         self.columnconfigure(0, weight=1)
@@ -2363,23 +2396,27 @@ class ProjectPage(ttk.Frame):
         if not name or len(self.projects) >= 3:
             return
 
-        project = ProjectCard(
+        new_id = self.parent.insert_project(name)
+
+        self.projects[new_id] = ProjectCard(
             self.project_frame,
             name,
             on_complete=self.complete_project,
         )
-        self.projects.append(project)
+        self.projects[new_id].project_id = new_id
         self.project_name.delete(0, "end")
         self.arrange_projects()
 
     def fill_existing_projects(self):
-        for project in self.existing_projects:
-            project = ProjectCard(
+        for saved_project in self.active_project_records:
+            existing_id = saved_project['id']
+            name = saved_project['id']
+            self.projects[existing_id] = ProjectCard(
                 self.project_frame,
-                project,
+                name,
                 on_complete=self.complete_project,
             )
-            self.projects.append(project)
+            self.projects[existing_id].project_id = existing_id
             self.arrange_projects()
 
     def complete_project(self, project):
@@ -2388,7 +2425,7 @@ class ProjectPage(ttk.Frame):
         self.arrange_projects()
 
     def arrange_projects(self):
-        for column, project in enumerate(self.projects):
+        for column, project in enumerate(self.projects.values()):
             project.grid(
                 row=0, column=column, sticky="nsew", padx=5
             )
@@ -2936,7 +2973,7 @@ class ProjectCard(ttk.LabelFrame):
 
         self.project_name = name
 
-        self.milestones = []
+        self.milestones = {}
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(4, weight=1)
@@ -3040,13 +3077,14 @@ class ProjectCard(ttk.LabelFrame):
         if not title:
             return
 
-        completed = tk.BooleanVar(self, value=False)
-        self.milestones.append(completed)
+        milestone_id = self.parent.insert_milestone(self, self.project_id, title)
+
+        self.milestones[milestone_id] = tk.BooleanVar(self, value=False)
         row = len(self.milestones) - 1
 
         ttk.Checkbutton(
             self.milestone_frame,
-            variable=completed,
+            variable=self.milestones[milestone_id],
             command=self.update_progress,
             cursor="hand2",
         ).grid(row=row, column=0, sticky="nw", pady=5)
@@ -3062,21 +3100,23 @@ class ProjectCard(ttk.LabelFrame):
         self.update_progress()
 
     def add_existing_milestones(self):
-        for milestone in self.existing_milestones:
-            completed = tk.BooleanVar(self, value=False)
-            self.milestones.append(completed)
+        existing_milestones = self.parent.milestone_record_lookup[self.project_id]
+        for record in existing_milestones:
+            name = record['name']
+            milestone_id = record['id']
+            self.milestones[milestone_id] = tk.BooleanVar(self, value=False)
             row = len(self.milestones) - 1
 
             ttk.Checkbutton(
                 self.milestone_frame,
-                variable=completed,
+                variable=self.milestones[milestone_id],
                 command=self.update_progress,
                 cursor="hand2",
             ).grid(row=row, column=0, sticky="nw", pady=5)
 
             ttk.Label(
                 self.milestone_frame,
-                text='title',
+                text=name,
                 style="TLabel",
                 wraplength=max(50, self.canvas.winfo_width() - 40),
             ).grid(row=row, column=1, sticky="nw", pady=5)
