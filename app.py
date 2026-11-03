@@ -284,10 +284,14 @@ class Application(tk.Tk):
         self.conn.row_factory = sqlite3.Row
         self.conn.execute(opening_query_sessions)
         self.conn.execute(opening_query_recurring_tasks)
+        self.conn.execute(opening_query_projects)
+        self.conn.execute(opening_query_milestones)
+        self.conn.execute(opening_query_targets)
 
         self.today = datetime.today().strftime("%Y-%m-%d")
         self.title("Study Tracker")
         self.geometry("1080x650")
+        self.load_data()
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -312,7 +316,22 @@ class Application(tk.Tk):
         self.main_tab.columnconfigure(1, weight=2)
         self.main_tab.rowconfigure(0, weight=1)
 
-        self.canvas_frame = ScrollableFrame(self.main_tab)
+
+        tasks_and_weekly_progress = ttk.Frame(
+            self.main_tab,
+            style="Page.TFrame",
+        )
+        tasks_and_weekly_progress.grid(
+            row=0,
+            column=0,
+            sticky="nsew",
+        )
+
+        tasks_and_weekly_progress.columnconfigure(0, weight=1)
+        tasks_and_weekly_progress.rowconfigure(0, weight=1)
+        tasks_and_weekly_progress.rowconfigure(1, weight=0)
+
+        self.canvas_frame = ScrollableFrame(tasks_and_weekly_progress)
         self.canvas_frame.grid(
             row=0,
             column=0,
@@ -333,6 +352,31 @@ class Application(tk.Tk):
             column=0,
             sticky="new",
         )
+
+        self.weekly_progress = ttk.Frame(
+            tasks_and_weekly_progress,
+            style="Page.TFrame",
+            padding=10,
+            relief="solid",
+            borderwidth=1
+        )
+        self.weekly_progress.grid(
+            row=1,
+            column=0,
+            sticky="nsew"
+        )
+        self.weekly_progress.columnconfigure(0,weight=1)
+        ttk.Label(self.weekly_progress, text="Targets This Week", style="Heading.TLabel")\
+            .grid(row=0, column=0, sticky="nsew")
+        target_df = self.target_subjects
+        for i in range(1,4):
+            j = i-1
+            title = target_df.loc[j,'subject']
+            current = target_df.loc[j,'current']
+            target = target_df.loc[j,'target']
+
+            bar = MetricBar(self.weekly_progress, title, current, target, text="placeholder")
+            bar.grid(column=0, row=i, sticky='ew')
 
         stop_watch_and_task_adder = ttk.Frame(
             self.main_tab,
@@ -382,8 +426,6 @@ class Application(tk.Tk):
 
         stop_watch_and_task_adder.rowconfigure(2, weight=1)
 
-        self.load_data()
-
         self.visuals_tab = Visuals(
             self.notebook,
             self,
@@ -395,7 +437,6 @@ class Application(tk.Tk):
             self.analytics_tab,
             text="Analytics",
         )
-
 
         self.notebook.add(
             self.visuals_tab,
@@ -425,10 +466,19 @@ class Application(tk.Tk):
        rows = self.conn.execute("SELECT * FROM weekly_targets").fetchall()
        weekly_targets = pd.DataFrame([dict(row) for row in rows])
 
+       rows = self.conn.execute("SELECT * FROM projects").fetchall()
+       projects = pd.DataFrame([dict(row) for row in rows])
+
+       rows = self.conn.execute("SELECT * FROM milestones").fetchall()
+       milestones = pd.DataFrame([dict(row) for row in rows])
+
+
        self.data_lookup = {
            'sessions':sessions,
            'recurring_tasks':recurring_tasks,
-           'weekly_targets':weekly_targets
+           'weekly_targets':weekly_targets,
+           'projects':projects,
+           'milestones':milestones
        }
 
        week_start = "2026-10-25"
@@ -437,6 +487,19 @@ class Application(tk.Tk):
        active_targets = weekly_targets.query('active == 1')[['subject', 'metric', 'target']]
        
        combined_df = last_week_data.merge(active_targets, on='subject')
+       
+       active_projects = projects.query('completed == 0')
+       self.existing_projects = active_projects['name'].tolist()
+       print(active_projects)
+       active_project_ids = active_projects['id'].tolist()
+
+       active_milestones = milestones.merge(active_projects, left_on='project_id', right_on='id', suffixes=('_milestone','_projects'))
+
+       self.milestone_lookup = (
+            active_milestones.groupby("project_id")["id_milestone"]
+            .apply(list)
+            .to_dict()
+        )
 
        def get_metric_column(row):
 
@@ -451,7 +514,6 @@ class Application(tk.Tk):
        combined_df['current'] = combined_df.apply(get_metric_column, axis=1)
 
        self.target_subjects = combined_df
-
 
     def change_stats_period(self, event=None):
         period = self.stats_period.get()
@@ -1815,8 +1877,6 @@ class Analytics(ttk.Frame):
         self.header_frame = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=1,
         )
         self.header_frame.grid(
             row=0, column=0, sticky="ew", padx=10, pady=10
@@ -1847,8 +1907,6 @@ class Analytics(ttk.Frame):
         self.bottom_frame = ttk.Frame(
             self,
             style="Card.TFrame",
-                        relief="solid",
-            borderwidth=1,
         )
         self.bottom_frame.grid(
             row=1, column=0, sticky="nsew"
@@ -1864,60 +1922,24 @@ class Analytics(ttk.Frame):
         self.bottom_left_frame = ttk.Frame(
             self.bottom_frame,
             style="Card.TFrame",
-                        relief="solid",
-            borderwidth=1,
         )
         self.bottom_left_frame.grid(
             row=0, column=0, sticky="nsew"
         )
 
-        self.bottom_left_upper = ttk.Frame(
-            self.bottom_left_frame,
-            style="Card.TFrame",
-            relief="solid",
-            borderwidth=1,
-        )
-        self.bottom_left_upper.grid(
-            row=0, column=0, sticky="ew"
-        )
-        self.bottom_left_frame.columnconfigure(0, weight=1)
-
-        self.bottom_left_lower = ttk.Frame(
-            self.bottom_left_frame,
-            style="Card.TFrame",
-            relief="solid",
-            borderwidth=1,
-        )
-        self.bottom_left_lower.grid(
-            row=1, column=0, sticky="ew"
-        )
-        self.bottom_left_lower.columnconfigure(0, weight=1)
-        self.bottom_left_lower.rowconfigure(1, weight=1)
-
-        target_df = self.parent.target_subjects
-        for i in range(0,3):
-            title = target_df.loc[i,'subject']
-            current = target_df.loc[i,'current']
-            target = target_df.loc[i,'target']
-
-            bar = MetricBar(self.bottom_left_lower, title, current, target, text="placeholder")
-            bar.grid(column=0, row=i, sticky='ew')
-
         for column in range(3):
-            self.bottom_left_upper.columnconfigure(
+            self.bottom_left_frame.columnconfigure(
                 column, weight=1, uniform="cards"
             )
 
         for row in range(2):
-            self.bottom_left_upper.rowconfigure(
+            self.bottom_left_frame.rowconfigure(
                 row, weight=1, uniform="cards"
             )
 
         self.bottom_right_frame = ttk.Frame(
             self.bottom_frame,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=1,
         )
         self.bottom_right_frame.grid(
             row=0, column=1, sticky="nsew", padx=8, pady=8
@@ -1932,7 +1954,7 @@ class Analytics(ttk.Frame):
             row, column = divmod(i, 3)
 
             card = StatCard(
-                self.bottom_left_upper,
+                self.bottom_left_frame,
                 title="",
                 value="",
             )
@@ -2276,7 +2298,9 @@ class ProjectPage(ttk.Frame):
             style="Page.TFrame",
         )
 
+        self.parent = parent
         self.projects = []
+        self.existing_projects = self.parent.existing_projects
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
@@ -2331,6 +2355,8 @@ class ProjectPage(ttk.Frame):
                 column, weight=1, uniform="projects"
             )
 
+        self.fill_existing_projects()
+
     def add_project(self, event=None):
         name = self.project_name.get().strip()
 
@@ -2345,6 +2371,16 @@ class ProjectPage(ttk.Frame):
         self.projects.append(project)
         self.project_name.delete(0, "end")
         self.arrange_projects()
+
+    def fill_existing_projects(self):
+        for project in self.existing_projects:
+            project = ProjectCard(
+                self.project_frame,
+                project,
+                on_complete=self.complete_project,
+            )
+            self.projects.append(project)
+            self.arrange_projects()
 
     def complete_project(self, project):
         self.projects.remove(project)
@@ -2898,6 +2934,8 @@ class ProjectCard(ttk.LabelFrame):
             style="Card.TLabelframe",
         )
 
+        self.project_name = name
+
         self.milestones = []
 
         self.columnconfigure(0, weight=1)
@@ -3022,6 +3060,29 @@ class ProjectCard(ttk.LabelFrame):
 
         self.milestone_name.delete(0, "end")
         self.update_progress()
+
+    def add_existing_milestones(self):
+        for milestone in self.existing_milestones:
+            completed = tk.BooleanVar(self, value=False)
+            self.milestones.append(completed)
+            row = len(self.milestones) - 1
+
+            ttk.Checkbutton(
+                self.milestone_frame,
+                variable=completed,
+                command=self.update_progress,
+                cursor="hand2",
+            ).grid(row=row, column=0, sticky="nw", pady=5)
+
+            ttk.Label(
+                self.milestone_frame,
+                text='title',
+                style="TLabel",
+                wraplength=max(50, self.canvas.winfo_width() - 40),
+            ).grid(row=row, column=1, sticky="nw", pady=5)
+
+            self.milestone_name.delete(0, "end")
+            self.update_progress()
 
     def resize_milestones(self, event):
         self.canvas.itemconfigure(
