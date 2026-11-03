@@ -227,6 +227,47 @@ opening_query_recurring_tasks = """
     );
 """
 
+opening_query_projects = """
+    CREATE TABLE IF NOT EXISTS projects (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 0
+            CHECK (completed IN (0, 1))
+    );
+"""
+
+opening_query_milestones = """
+    CREATE TABLE IF NOT EXISTS milestones (
+        id INTEGER PRIMARY KEY,
+        project_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        completed INTEGER NOT NULL DEFAULT 0
+            CHECK (completed IN (0, 1)),
+        FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+"""
+
+opening_query_targets = """
+CREATE TABLE IF NOT EXISTS weekly_targets (
+    id INTEGER PRIMARY KEY,
+    date TEXT NOT NULL,
+    subject TEXT,
+    project_id INTEGER,
+    metric TEXT NOT NULL
+        CHECK (metric IN ('minutes', 'completed', 'hours')),
+    target INTEGER NOT NULL CHECK (target > 0),
+    active INTEGER NOT NULL DEFAULT 0 CHECK (active IN (0, 1)),
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+
+    -- Each target applies to either a subject or a project.
+    CHECK (
+        (subject IS NOT NULL AND project_id IS NULL)
+        OR
+        (subject IS NULL AND project_id IS NOT NULL)
+    )
+);
+"""
+
 #####################
 # Root Class
 #####################
@@ -381,10 +422,36 @@ class Application(tk.Tk):
        rows = self.conn.execute("SELECT * FROM recurring_tasks").fetchall()
        recurring_tasks = pd.DataFrame([dict(row) for row in rows])
 
+       rows = self.conn.execute("SELECT * FROM weekly_targets").fetchall()
+       weekly_targets = pd.DataFrame([dict(row) for row in rows])
+
        self.data_lookup = {
            'sessions':sessions,
-           'recurring_tasks':recurring_tasks
+           'recurring_tasks':recurring_tasks,
+           'weekly_targets':weekly_targets
        }
+
+       week_start = "2026-10-25"
+       last_week_data = sessions.query('date > @week_start').groupby('subject', as_index = False)[['minutes','completed']].sum()\
+        .assign(hours=lambda df: df["minutes"] // 60)
+       active_targets = weekly_targets.query('active == 1')[['subject', 'metric', 'target']]
+       
+       combined_df = last_week_data.merge(active_targets, on='subject')
+
+       def get_metric_column(row):
+
+           metric = row['metric']
+           if metric == 'completed':
+               return row['completed']
+           elif metric == 'minutes':
+               return row['minutes']
+           else:
+               return row['hours']
+
+       combined_df['current'] = combined_df.apply(get_metric_column, axis=1)
+
+       self.target_subjects = combined_df
+
 
     def change_stats_period(self, event=None):
         period = self.stats_period.get()
@@ -543,14 +610,15 @@ class Targets(ttk.Frame):
             borderwidth=1
         )
 
-        self.on_add = on_add
+        self.parent = parent
 
         # Temporary data
         self.subjects = ["French", "Python", "SQL"]
         self.projects = ["Finish App", "Do Homework"]
 
         # Variables
-        self.choice = tk.StringVar(value="subject")
+        self.target_type = tk.StringVar(value="subject")
+        self.choices = self.subjects
         self.amount = tk.StringVar(value="120")
 
         # ==========================================
@@ -623,7 +691,8 @@ class Targets(ttk.Frame):
         subject_button = ttk.Radiobutton(
             radio_button_container,
             text="Subject",
-            variable=self.choice,
+            variable=self.target_type,
+            command=self.update_choices,
             value="subject",
             cursor="hand2"
         )
@@ -633,7 +702,8 @@ class Targets(ttk.Frame):
         project_button = ttk.Radiobutton(
             radio_button_container,
             text="Project",
-            variable=self.choice,
+            variable=self.target_type,
+            command=self.update_choices,
             value="project",
             cursor="hand2"
         )
@@ -644,11 +714,12 @@ class Targets(ttk.Frame):
         # Subject / Project Choice
         # ==========================================
 
+        self.target_label = "Pick a Subject"
         self.target_choice = DropdownField(
             self.week_targets,
             "Choose Subject",
             "target_choice",
-            self.subjects
+            self.choices
         )
         
         self.target_choice.pack(side='left', padx=(0, 6),pady=(0, 5))
@@ -692,7 +763,7 @@ class Targets(ttk.Frame):
             "Measure",
             "measuring",
             ["Minutes", "Hours", "Tasks"]
-        ).pack(side='left', padx=(0, 6),pady=(0, 5))
+        ).pack(side='left', padx=(0, 6), pady=(0, 5))
 
         # ==========================================
         # Add Target
@@ -711,6 +782,14 @@ class Targets(ttk.Frame):
             sticky="w",
             pady=(12, 0)
         )
+
+    def update_choices(self):
+        target_type = self.target_type.get()
+        choices = self.subjects if target_type == 'subject' else self.projects
+        target_label = "Subject" if target_type == 'subjects' else "Projects"
+        self.target_choice.label.configure(text=f"Choose {target_label}")
+        self.target_choice.widget.configure(values=choices)
+        self.target_choice.widget.set(choices[0] if choices else "")
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -1736,6 +1815,8 @@ class Analytics(ttk.Frame):
         self.header_frame = ttk.Frame(
             self,
             style="Card.TFrame",
+            relief="solid",
+            borderwidth=1,
         )
         self.header_frame.grid(
             row=0, column=0, sticky="ew", padx=10, pady=10
@@ -1766,6 +1847,8 @@ class Analytics(ttk.Frame):
         self.bottom_frame = ttk.Frame(
             self,
             style="Card.TFrame",
+                        relief="solid",
+            borderwidth=1,
         )
         self.bottom_frame.grid(
             row=1, column=0, sticky="nsew"
@@ -1781,24 +1864,60 @@ class Analytics(ttk.Frame):
         self.bottom_left_frame = ttk.Frame(
             self.bottom_frame,
             style="Card.TFrame",
+                        relief="solid",
+            borderwidth=1,
         )
         self.bottom_left_frame.grid(
             row=0, column=0, sticky="nsew"
         )
 
+        self.bottom_left_upper = ttk.Frame(
+            self.bottom_left_frame,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=1,
+        )
+        self.bottom_left_upper.grid(
+            row=0, column=0, sticky="ew"
+        )
+        self.bottom_left_frame.columnconfigure(0, weight=1)
+
+        self.bottom_left_lower = ttk.Frame(
+            self.bottom_left_frame,
+            style="Card.TFrame",
+            relief="solid",
+            borderwidth=1,
+        )
+        self.bottom_left_lower.grid(
+            row=1, column=0, sticky="ew"
+        )
+        self.bottom_left_lower.columnconfigure(0, weight=1)
+        self.bottom_left_lower.rowconfigure(1, weight=1)
+
+        target_df = self.parent.target_subjects
+        for i in range(0,3):
+            title = target_df.loc[i,'subject']
+            current = target_df.loc[i,'current']
+            target = target_df.loc[i,'target']
+
+            bar = MetricBar(self.bottom_left_lower, title, current, target, text="placeholder")
+            bar.grid(column=0, row=i, sticky='ew')
+
         for column in range(3):
-            self.bottom_left_frame.columnconfigure(
+            self.bottom_left_upper.columnconfigure(
                 column, weight=1, uniform="cards"
             )
 
         for row in range(2):
-            self.bottom_left_frame.rowconfigure(
+            self.bottom_left_upper.rowconfigure(
                 row, weight=1, uniform="cards"
             )
 
         self.bottom_right_frame = ttk.Frame(
             self.bottom_frame,
             style="Card.TFrame",
+            relief="solid",
+            borderwidth=1,
         )
         self.bottom_right_frame.grid(
             row=0, column=1, sticky="nsew", padx=8, pady=8
@@ -1813,7 +1932,7 @@ class Analytics(ttk.Frame):
             row, column = divmod(i, 3)
 
             card = StatCard(
-                self.bottom_left_frame,
+                self.bottom_left_upper,
                 title="",
                 value="",
             )
