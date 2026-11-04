@@ -365,8 +365,6 @@ class Application(tk.Tk):
             # style="Page.TFrame",
             padding=10,
             style="Page.TFrame",
-            relief="solid",
-            borderwidth=1
         )
         self.weekly_progress.grid(
             row=1,
@@ -696,8 +694,6 @@ class Targets(ttk.Frame):
             parent,
             style="Card.TFrame",
             padding=12,
-            relief="solid",
-            borderwidth=1
         )
 
         self.parent = parent
@@ -733,8 +729,6 @@ class Targets(ttk.Frame):
         self.week_targets = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=1
         )
 
         self.week_targets.grid(
@@ -750,8 +744,6 @@ class Targets(ttk.Frame):
         radio_frame = ttk.Frame(
             self.week_targets,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=1
         )
         
         radio_frame.pack(side='left', padx=(0, 6),pady=(0, 5))
@@ -770,8 +762,6 @@ class Targets(ttk.Frame):
         radio_button_container = ttk.Frame(
             radio_frame,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=1
         )
 
         radio_button_container.pack(
@@ -886,7 +876,7 @@ class Tasks(ttk.Frame):
         super().__init__(
             canvas,
             padding=10,
-            style="Card.TFrame",relief="solid", borderwidth=1
+            style="Card.TFrame",
         )
 
         self.parent = parent
@@ -911,7 +901,7 @@ class Tasks(ttk.Frame):
         # Let the task area expand with the frame.
         self.columnconfigure(0, weight=1)
 
-        self.header_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
+        self.header_frame = ttk.Frame(self, style="Card.TFrame",)
         self.header_frame.columnconfigure(0, weight=1)
         self.header_frame.grid(
             row=0, column=0,
@@ -919,7 +909,7 @@ class Tasks(ttk.Frame):
             padx=(0, 20),
         )
 
-        self.calendar_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
+        self.calendar_frame = ttk.Frame(self, style="Card.TFrame",)
         self.calendar_frame.columnconfigure(0, weight=1)
         self.calendar_frame.grid(
             row=0, column=1,
@@ -941,7 +931,7 @@ class Tasks(ttk.Frame):
             pady=(16, 8),
         )
 
-        self.task_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
+        self.task_frame = ttk.Frame(self, style="Card.TFrame", )
         self.task_frame.grid(
             row=2, column=0,
             columnspan=2,
@@ -949,7 +939,7 @@ class Tasks(ttk.Frame):
         )
         self.task_frame.columnconfigure(0, weight=1)
 
-        self.save_frame = ttk.Frame(self, style="Card.TFrame", relief="solid", borderwidth=2)
+        self.save_frame = ttk.Frame(self, style="Card.TFrame",)
         self.save_frame.grid(
             row=3, column=0,
             columnspan=2,
@@ -1022,7 +1012,6 @@ class Tasks(ttk.Frame):
                 self.task_frame,
                 padding=(0, 10),
                 style="Card.TFrame",
-                relief="solid", borderwidth=2
             )
             subject_frame.grid(
                 row=len(self.subject_frames),
@@ -1135,7 +1124,7 @@ class Tasks(ttk.Frame):
         self.hours[task_id] = tk.StringVar(self, value=hours)
         self.minutes[task_id] = tk.StringVar(self, value=minutes)
 
-        time_frame = ttk.Frame(subject_frame, style="Card.TFrame", relief="solid", borderwidth=2)
+        time_frame = ttk.Frame(subject_frame, style="Card.TFrame",)
         time_frame.grid(
             row=row, column=1,
             # sticky="e",
@@ -1260,7 +1249,6 @@ class Timer(ttk.Frame):
     def __init__(self, new_frame, parent):
         super().__init__(
             new_frame,
-            relief="solid", borderwidth=2,
             padding=10,
             style="Card.TFrame"
         )
@@ -1458,7 +1446,6 @@ class Schedule(ttk.Frame):
         super().__init__(
             new_frame,
             padding=10,
-            relief="solid", borderwidth=2,
             style="Card.TFrame"
         )
 
@@ -1479,7 +1466,6 @@ class Schedule(ttk.Frame):
         self.task_info_frame = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid", borderwidth=1
         )
 
         self.task_info_frame.grid(
@@ -1507,7 +1493,6 @@ class Schedule(ttk.Frame):
         self.recurrence_frame = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid", borderwidth=1
         )
 
         self.recurrence_frame.grid(
@@ -1543,7 +1528,6 @@ class Schedule(ttk.Frame):
         self.submit_frame = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid", borderwidth=1
         )
 
         self.submit_frame.grid(
@@ -1682,7 +1666,7 @@ class Schedule(ttk.Frame):
 
 class Visuals(ttk.Frame):
     def __init__(self, notebook, parent, df):
-        super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=2)
+        super().__init__(parent, style="Card.TFrame", )
 
         self.parent = parent
         self.df = df
@@ -1691,7 +1675,7 @@ class Visuals(ttk.Frame):
         self.canvas = None
         self.fig = None
 
-        self.header_frame = ttk.Frame(self, relief="solid", borderwidth=2)
+        self.header_frame = ttk.Frame(self)
         self.header_frame.grid(row=0, column=0, sticky='ew')
 
         date_choice_label = ttk.Label(
@@ -1852,8 +1836,6 @@ class Analytics(ttk.Frame):
         super().__init__(
             notebook,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=1,
         )
 
         self.parent = parent
@@ -2138,7 +2120,7 @@ class TaskManager(ttk.Frame):
         super().__init__(
             notebook,
             style="Page.TFrame",
-            padding=10, relief="solid", borderwidth=2
+            padding=10,
         )
         self.root = self.winfo_toplevel()
 
@@ -2175,7 +2157,7 @@ class TaskManager(ttk.Frame):
 
         self.dataset_choice = tk.StringVar(value="Sessions")
 
-        self.header_frame = ttk.Frame(self, relief="solid", borderwidth=2, style="Card.TFrame")
+        self.header_frame = ttk.Frame(self, style="Card.TFrame")
         self.header_frame.grid(
             row=0, column=0, sticky="ew", pady=(0, 10)
         )
@@ -2466,8 +2448,6 @@ class TreeView(ttk.Frame):
         tree_frame = ttk.Frame(
             self,
             style="Card.TFrame",
-            relief="solid",
-            borderwidth=2,
         )
         tree_frame.grid(row=1, column=0, sticky="nsew")
         tree_frame.columnconfigure(0, weight=1)
@@ -2633,9 +2613,7 @@ class ScrollableFrame(ttk.Frame):
     def __init__(self, parent):
         super().__init__(parent, 
                          style="Page.TFrame",
-                         padding=10,
-                           relief="solid",
-                             borderwidth=1)
+                         padding=10,)
 
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -2725,8 +2703,7 @@ class MetricBar(ttk.Frame):
         super().__init__(
             parent,
             padding=10,
-            style="StatCard.TFrame",
-        )
+            style="Card.TFrame"        )
 
         # Card heading
         ttk.Label(
@@ -2755,7 +2732,6 @@ class CalendarField(ttk.Frame):
         super().__init__(
             parent,
             style="Card.TFrame",
-            relief="solid", borderwidth=1,
         )
 
         self.columnconfigure(0, weight=1)
@@ -2811,7 +2787,6 @@ class EntryField(ttk.Frame):
         super().__init__(
             parent,
             style="Card.TFrame",
-            relief="solid", borderwidth=1,
         )
 
         self.columnconfigure(0, weight=1)
@@ -2865,7 +2840,6 @@ class DropdownField(ttk.Frame):
         super().__init__(
             parent,
             style="Card.TFrame",
-            relief="solid", borderwidth=1,
         )
 
         self.columnconfigure(0, weight=1)
