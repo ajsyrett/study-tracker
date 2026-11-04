@@ -179,6 +179,10 @@ def configure_appearance(root):
         background=[("selected", UI_COLORS["accent"])],
         foreground=[("selected", "#FFFFFF")],
     )
+    style.configure(
+        "White.TRadiobutton",
+        background="white"
+    )
 
     # Charts
     plt.rcParams.update({
@@ -327,6 +331,7 @@ class Application(tk.Tk):
         tasks_and_weekly_progress = ttk.Frame(
             self.main_tab,
             style="Page.TFrame",
+            padding=10
         )
         tasks_and_weekly_progress.grid(
             row=0,
@@ -343,7 +348,6 @@ class Application(tk.Tk):
             row=0,
             column=0,
             sticky="nsew",
-            padx=(0, 10),
         )
 
         self.canvas_frame.scrollable_frame.columnconfigure(
@@ -362,18 +366,18 @@ class Application(tk.Tk):
 
         self.weekly_progress = ttk.Frame(
             tasks_and_weekly_progress,
-            # style="Page.TFrame",
-            padding=10,
-            style="Page.TFrame",
+            style="Card.TFrame",
+            padding=10
         )
         self.weekly_progress.grid(
             row=1,
             column=0,
-            sticky="nsew"
+            sticky="nsew",
+            pady=(10,0)
         )
         self.weekly_progress.columnconfigure(0,weight=1)
         ttk.Label(self.weekly_progress, text="Targets This Week", style="Heading.TLabel")\
-            .grid(row=0, column=0, sticky="nsew")
+            .grid(row=0, column=0, sticky="w")
         target_df = self.target_subjects
         for i in range(1,4):
             j = i-1
@@ -707,6 +711,8 @@ class Targets(ttk.Frame):
         self.choices = self.subjects
         self.amount = tk.StringVar(value="120")
 
+        self.preview = tk.StringVar()
+
         # ==========================================
         # Header
         # ==========================================
@@ -774,7 +780,8 @@ class Targets(ttk.Frame):
             variable=self.target_type,
             command=self.update_choices,
             value="subject",
-            cursor="hand2"
+            cursor="hand2",
+            style="White.TRadiobutton"
         )
         
         subject_button.pack(side="left", padx=(0, 8))
@@ -785,7 +792,8 @@ class Targets(ttk.Frame):
             variable=self.target_type,
             command=self.update_choices,
             value="project",
-            cursor="hand2"
+            cursor="hand2",
+            style="White.TRadiobutton"
         )
         
         project_button.pack(side="left")
@@ -843,33 +851,167 @@ class Targets(ttk.Frame):
             "Measure",
             "measuring",
             ["Minutes", "Hours", "Tasks"]
-        ).pack(side='left', padx=(0, 6), pady=(0, 5))
+        )
+
+        self.measure.pack(
+            side="left",
+            padx=(0, 6),
+            pady=(0, 5)
+        )
+
+        self.measure.widget.set("Minutes")
 
         # ==========================================
         # Add Target
         # ==========================================
 
-        self.add_button = ttk.Button(
+        self.submit_and_remove_frame = ttk.Frame(
             self,
+            style="Card.TFrame",
+        )
+
+        self.submit_and_remove_frame.grid(
+            row=2,
+            column=0,
+            sticky="ew"
+        )
+
+        self.add_button = ttk.Button(
+            self.submit_and_remove_frame,
             cursor="hand2",
             text="Add Target",
             style="Accent.TButton"
         )
 
-        self.add_button.grid(
-            row=2,
-            column=0,
-            sticky="w",
+        self.add_button.pack(
+            side='left',
             pady=(12, 0)
         )
 
+        self.preview_label = ttk.Label(
+            self.submit_and_remove_frame,
+            textvariable=self.preview,
+            style="Muted.TLabel",
+            wraplength=150,
+            justify="left"
+        )
+
+        self.preview_label.pack(
+            side='left',
+            pady=(10, 0),
+            padx=(12,0)
+        )
+
+        divider = ttk.Separator(
+            self.submit_and_remove_frame,
+            orient="vertical"
+        )
+
+        divider.pack(
+            side="left",
+            fill="y",
+            padx=12,
+            pady=5
+        )
+
+        # Remove target dropdown
+        self.remove_target = DropdownField(
+            self.submit_and_remove_frame,
+            "Remove Target",
+            "remove_target",
+            []
+        )
+
+        self.remove_target.pack(
+            side='left',
+            anchor="w",
+            padx=(12,0),
+        )
+
+        self.remove_button = ttk.Button(
+            self.submit_and_remove_frame,
+            text="Remove",
+            cursor="hand2",
+            style="Accent.TButton"
+            # command=self.remove_weekly_target
+        )
+
+        self.remove_button.pack(
+            side='left',
+            anchor="w",
+            pady=(12, 0),
+            padx=(12,0),
+        )
+
+        self.target_choice.widget.bind(
+            "<<ComboboxSelected>>",
+            self.update_preview
+        )
+
+        self.measure.widget.bind(
+            "<<ComboboxSelected>>",
+            self.update_preview
+        )
+
+        self.update_choices()
+        self.update_preview()
+
+    def update_preview(self, *_):
+        name = self.target_choice.get()
+        amount = self.amount.get()
+        measure = self.measure.get()
+
+        if not name:
+            self.preview.set(f"Choose a {self.target_type.get()}.")
+            return
+
+        if not amount:
+            self.preview.set("Enter a target.")
+            return
+
+        if measure == "Minutes":
+            self.preview.set(
+                f"Spend {amount} minutes on {name} this week."
+            )
+
+        elif measure == "Hours":
+            self.preview.set(
+                f"Spend {amount} hours on {name} this week."
+            )
+
+        elif measure == "Tasks":
+            self.preview.set(
+                f"Complete {amount} tasks for {name} this week."
+            )
+
     def update_choices(self):
         target_type = self.target_type.get()
-        choices = self.subjects if target_type == 'subject' else self.projects
-        target_label = "Subject" if target_type == 'subjects' else "Projects"
-        self.target_choice.label.configure(text=f"Choose {target_label}")
-        self.target_choice.widget.configure(values=choices)
-        self.target_choice.widget.set(choices[0] if choices else "")
+
+        choices = (
+            self.subjects
+            if target_type == "subject"
+            else self.projects
+        )
+
+        target_label = (
+            "Subject"
+            if target_type == "subject"
+            else "Project"
+        )
+
+        self.target_choice.label.configure(
+            text=f"Choose {target_label}"
+        )
+
+        self.target_choice.widget.configure(
+            values=choices
+        )
+
+        self.target_choice.widget.set(
+            choices[0] if choices else ""
+        )
+
+        self.update_preview()
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -907,21 +1049,6 @@ class Tasks(ttk.Frame):
             row=0, column=0,
             sticky="nw",
             padx=(0, 20),
-        )
-
-        self.calendar_frame = ttk.Frame(self, style="Card.TFrame",)
-        self.calendar_frame.columnconfigure(0, weight=1)
-        self.calendar_frame.grid(
-            row=0, column=1,
-            sticky="ne",
-        )
-        self.calendar_frame.bind(
-            "<FocusOut>",
-            lambda event: self.calendar_frame.event_generate("<Escape>")
-        )
-        self.calendar_frame.bind(
-            "<Escape>",
-            lambda event: self.calendar_frame.event_generate("<Escape>")
         )
 
         ttk.Separator(self, orient="horizontal").grid(
@@ -973,34 +1100,10 @@ class Tasks(ttk.Frame):
         )
 
     def calendar_widget(self):
-        self.date_label = ttk.Label(
-            self.calendar_frame,
-            text="Choose date",
-        )
-        self.date_label.grid(
-            row=0, column=0,
-            sticky="w",
-            pady=(0, 6),
-        )
-
-        self.calendar = DateEntry(
-            self.calendar_frame, cursor="xterm",
-            width=12,
-            date_pattern="yyyy-mm-dd",
-        )
-        self.calendar.grid(row=1, column=0, sticky="e")
-
-        self.calendar.bind(
-            "<<DateEntrySelected>>",
-            self.change_date,
-        )
-        self.calendar.bind(
-            "<FocusOut>",
-            lambda event: self.calendar.event_generate("<Escape>")
-        )
-        self.calendar.bind(
-            "<Escape>",
-            lambda event: self.calendar.event_generate("<Escape>")
+        self.task_calendar = CalendarField(self, "Choose Date", 'task_date')
+        self.task_calendar.grid(
+            row=0, column=1,
+            sticky="ne",
         )
 
     def add_task(self, record):
@@ -1193,7 +1296,7 @@ class Tasks(ttk.Frame):
                 )
 
     def check_for_new_records(self):
-        date = self.calendar.get()
+        date = self.task_calendar.get()
 
         self.register_todays_recurring_items(date)
         new_records = self.parent.retrieve_records(date)
@@ -1474,9 +1577,58 @@ class Schedule(ttk.Frame):
             sticky="ew"
         )
 
-        # Subject
-        self.subject = EntryField(self.task_info_frame, "Subject", "new_task_subject_input")
-        self.subject.pack(side='left',padx=(0, 6),pady=(0, 5))
+        # Everything inside radio_frame uses pack().
+        self.target_type = tk.StringVar(value="subject")
+
+        radio_frame = ttk.Frame(
+            self.task_info_frame,
+            style="Card.TFrame",
+        )
+        
+        radio_frame.pack(side='left', padx=(0, 6),pady=(0, 5))
+
+        radio_label = ttk.Label(
+            radio_frame,
+            text="Task For",
+            style="Muted.TLabel"
+        )
+        
+        radio_label.pack(anchor="w", pady=(5, 5))
+
+        # Separate frame lets us pack the two
+        # radio buttons next to each other.
+        radio_button_container = ttk.Frame(
+            radio_frame,
+            style="Card.TFrame",
+        )
+
+        radio_button_container.pack(
+            anchor="w"
+        )
+
+        subject_button = ttk.Radiobutton(
+            radio_button_container,
+            text="Subject",
+            variable=self.target_type,
+            # command=self.update_choices,
+            value="subject",
+            cursor="hand2",
+            style="White.TRadiobutton"
+        )
+        
+        subject_button.pack(side="left", padx=(0, 8))
+
+        project_button = ttk.Radiobutton(
+            radio_button_container,
+            text="Project",
+            variable=self.target_type,
+            # command=self.update_choices,
+            value="project",
+            cursor="hand2",
+            style="White.TRadiobutton"
+        )
+        
+        project_button.pack(side="left")
 
         # Project
         self.project = EntryField(self.task_info_frame, "Project", "new_task_project_input")
@@ -2612,8 +2764,8 @@ class ScrollableFrame(ttk.Frame):
 
     def __init__(self, parent):
         super().__init__(parent, 
-                         style="Page.TFrame",
-                         padding=10,)
+                         style="Card.TFrame",
+                         padding=10)
 
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -2753,6 +2905,31 @@ class CalendarField(ttk.Frame):
             self,
             cursor="xterm",
             date_pattern="yyyy-mm-dd",
+
+            # Selected date
+            selectbackground=UI_COLORS["accent"],
+            selectforeground="white",
+
+            # Calendar headers
+            headersbackground=UI_COLORS["accent"],
+            headersforeground="white",
+
+            # Normal days
+            normalbackground="white",
+            normalforeground=UI_COLORS["text"],
+
+            # Weekend days
+            weekendbackground="white",
+            weekendforeground=UI_COLORS["text"],
+
+            # Other month's days
+            othermonthbackground="#F3F6FA",
+            othermonthforeground="#9AA4B2",
+
+            # Calendar background
+            background=UI_COLORS["accent"],
+            foreground="white",
+
             **kwargs
         )
 
