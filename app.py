@@ -112,6 +112,11 @@ def configure_appearance(root):
         foreground=UI_COLORS["danger"],
         font=(family, 9),
     )
+    style.configure(
+        "Small.Accent.TButton",
+        font=(family, 9),
+        padding=(6, 3),
+    )
 
     # Controls
     style.configure(
@@ -279,6 +284,8 @@ class Application(tk.Tk):
         configure_appearance(self)
         self.calendars = {}
         self.widgets = {}
+        self.milestones = {}
+
 
         self.conn = sqlite3.connect("study_tracker.db")
         self.conn.row_factory = sqlite3.Row
@@ -355,8 +362,9 @@ class Application(tk.Tk):
 
         self.weekly_progress = ttk.Frame(
             tasks_and_weekly_progress,
-            style="Page.TFrame",
+            # style="Page.TFrame",
             padding=10,
+            style="Page.TFrame",
             relief="solid",
             borderwidth=1
         )
@@ -468,17 +476,17 @@ class Application(tk.Tk):
 
        rows = self.conn.execute("SELECT * FROM projects").fetchall()
        self.active_project_records = [row for row in rows if row['completed']==0]
-       self.active_project_ids = [row['id'] for row in self.active_project_records]
+       active_project_ids = [row['id'] for row in self.active_project_records]
        projects = pd.DataFrame([dict(row) for row in rows])
 
        rows = self.conn.execute("SELECT * FROM milestones").fetchall()
        milestones = pd.DataFrame([dict(row) for row in rows])
-       self.active_milestones = [row for row in rows if row['project_id'] in projects]
+       self.active_milestones = [row for row in rows if row['project_id'] in active_project_ids]
 
        self.milestone_record_lookup = defaultdict(list)
        for record in self.active_milestones:
-           self.milestone_record_lookup[record['project_id']].append(record['project_id'])
-
+           self.milestone_record_lookup[record['project_id']].append(record)
+           
        self.data_lookup = {
            'sessions':sessions,
            'recurring_tasks':recurring_tasks,
@@ -494,13 +502,6 @@ class Application(tk.Tk):
        
        combined_df = last_week_data.merge(active_targets, on='subject')
        
-       active_projects = projects.query('completed == 0')
-       self.existing_projects = active_projects['name'].tolist()
-       print(active_projects)
-       active_project_ids = active_projects['id'].tolist()
-
-       active_milestones = milestones.merge(active_projects, left_on='project_id', right_on='id', suffixes=('_milestone','_projects'))
-
        def get_metric_column(row):
 
            metric = row['metric']
@@ -634,8 +635,6 @@ class Application(tk.Tk):
                 WHERE id = ?
             """, (id,))
 
-        print(F"{table} deleted")
-
     def retrieve_new_records(self, date, existing_ids):
         existing_ids = tuple(existing_ids)
         placeholders = ", ".join("?" for _ in existing_ids)
@@ -651,8 +650,6 @@ class Application(tk.Tk):
 
     def update_record(self, id, table, column, value):
 
-        print('table:',table, 'column:',column)
-
         try:
             value = int(value)
         except ValueError:
@@ -666,8 +663,6 @@ class Application(tk.Tk):
                 SET {column} = ?
                 WHERE id = ?
             """, (value, id))
-
-        print(f"{table} updated")
 
     def get_start_and_end_dates(self, selection):
         days_by_choice = {
@@ -1116,10 +1111,8 @@ class Tasks(ttk.Frame):
         recurring_id = self.days_items[task_id]["recurring_id"]
         if recurring_id is not None:
             self.parent.cancel_record(task_id)
-            print(task_id, 'canceled')
         else:
             self.parent.delete_record("sessions", task_id)
-            print(task_id, 'deleted')
 
         for widget in self.row_widgets.pop(task_id):
             widget.destroy()
@@ -1190,8 +1183,6 @@ class Tasks(ttk.Frame):
 
     def register_todays_recurring_items(self, date):
         days_recurring_tasks = self.parent.retrieve_recurring_tasks()
-        print('here')
-        print([dict(x)for x in days_recurring_tasks])
 
         today_tasks = []
         for task_info in self.days_items.values():
@@ -1300,7 +1291,7 @@ class Timer(ttk.Frame):
         ).grid(
             row=0,
             column=0,
-            columnspan=3,
+            # columnspan=3,
             sticky="w",
             pady=(0, 15)
         )
@@ -1323,15 +1314,15 @@ class Timer(ttk.Frame):
             self,
             textvariable=self.task_choice,
             state="readonly",
-            width=30,
+            # width=30,
             values=self.task_names,
         )
 
         self.task_dropdown.grid(
             row=1,
             column=1,
-            columnspan=2,
-            sticky="w",
+            # columnspan=2,
+            # sticky="w",
             pady=(0, 15),
         )
 
@@ -1340,53 +1331,53 @@ class Timer(ttk.Frame):
             self,
             textvariable=self.sv,
             style="Timer.TLabel",
-            font=(self.parent.ui_font, 25, "bold"),
+            font=(self.parent.ui_font, 15, "bold"),
             anchor="center"
         )
 
         self.timer_display.grid(
             row=2,
             column=0,
-            columnspan=3,
+            # columnspan=3,
             sticky="ew",
-            pady=(0, 15)
+            pady=(0, 5)
         )
 
         # Buttons
         ttk.Button(
             self, cursor="hand2",
             text="Start",
-            style="Accent.TButton",
+            style="Small.Accent.TButton",
             command=self.start
         ).grid(
-            row=3,
-            column=0,
+            row=2,
+            column=1,
             padx=(0, 5),
-            sticky="ew"
+            sticky="e"
         )
 
         ttk.Button(
             self, cursor="hand2",
             text="Stop",
-            style="Accent.TButton",
+            style="Small.Accent.TButton",
             command=self.stop
         ).grid(
-            row=3,
-            column=1,
+            row=2,
+            column=2,
             padx=5,
-            sticky="ew"
+            sticky="w"
         )
 
         ttk.Button(
             self, cursor="hand2",
             text="Finish",
-            style="Accent.TButton",
+            style="Small.Accent.TButton",
             command=self.complete
         ).grid(
-            row=3,
-            column=2,
+            row=2,
+            column=3,
             padx=(5, 0),
-            sticky="ew"
+            sticky="w"
         )
 
     def get_stop_watch_options(self):
@@ -1498,16 +1489,16 @@ class Schedule(ttk.Frame):
         )
 
         # Subject
-        EntryField(self.task_info_frame, "Subject", "new_task_subject_input")\
-            .pack(side='left',padx=(0, 6),pady=(0, 5))
+        self.subject = EntryField(self.task_info_frame, "Subject", "new_task_subject_input")
+        self.subject.pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # Project
-        EntryField(self.task_info_frame, "Project", "new_task_project_input")\
-            .pack(side='left',padx=(0, 6),pady=(0, 5))
+        self.project = EntryField(self.task_info_frame, "Project", "new_task_project_input")
+        self.project.pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # Task
-        EntryField(self.task_info_frame, "Task", "new_task")\
-            .pack(side='left',padx=(0, 6),pady=(0, 5))
+        self.task_name = EntryField(self.task_info_frame, "Task", "new_task")
+        self.task_name.pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # ==========================================
         # Recurrence Frame
@@ -1534,16 +1525,16 @@ class Schedule(ttk.Frame):
             )
 
         # Frequency
-        DropdownField(self.recurrence_frame, "Task Frequency", 'frequency', ["One Off", "Daily", "Weekly"], default="One Off")\
-            .pack(side='left',padx=(0, 6),pady=(0, 5))
+        self.frequency = DropdownField(self.recurrence_frame, "Task Frequency", 'frequency', ["One Off", "Daily", "Weekly"], default="One Off")
+        self.frequency.pack(side='left',padx=(0, 6),pady=(0, 5))
 
         # Initial One-Off date field
         self.create_one_off_fields()
 
-        # self.frequency_dropdown.bind(
-        #     "<<ComboboxSelected>>",
-        #     self.frequency_adjustment
-        # )
+        self.parent.widgets['frequency'].bind(
+            "<<ComboboxSelected>>",
+            self.frequency_adjustment
+        )
 
         # ==========================================
         # Submit / Error Frame
@@ -1591,28 +1582,9 @@ class Schedule(ttk.Frame):
             sticky="w",
             padx=(12, 0)
         )
-    def clear_frequency_specific_fields(self):
-        widgets = [
-            getattr(self, "date_label", None),
-            getattr(self, "calendar", None),
-            getattr(self, "day_label", None),
-            getattr(self, "day_dropdown", None),
-        ]
-
-        for widget in widgets:
-            if widget is not None and widget.winfo_exists():
-                widget.destroy()
-
-    def clear_start_end_fields(self):
-        widgets = [
-            getattr(self, "start_date_label", None),
-            getattr(self, "start_date", None),
-            getattr(self, "end_date_label", None),
-            getattr(self, "end_date", None),
-        ]
-
-        for widget in widgets:
-            if widget is not None and widget.winfo_exists():
+    def clear_calendars(self):
+        for widget in self.recurrence_frame.winfo_children():
+            if widget is not self.frequency:
                 widget.destroy()
 
     def create_one_off_fields(self):
@@ -1620,64 +1592,47 @@ class Schedule(ttk.Frame):
         self.start_date = None
         self.end_date = None
 
-        CalendarField(self.recurrence_frame, "Choose Date", 'one_off')\
-            .pack(side='left', padx=(0, 6),pady=(0, 5))
+        self.one_off = CalendarField(self.recurrence_frame, "Choose Date", 'one_off')
+        self.one_off.pack(side='left', padx=(0, 6),pady=(0, 5))
 
     def create_daily_fields(self):
         self.day_choice = None
         self.calendar = None
 
-        CalendarField(self.recurrence_frame, "Choose Start Date", 'start_date')\
-            .pack(side='left', padx=(0, 6),pady=(0, 5))
+        self.start_date = CalendarField(self.recurrence_frame, "Choose Start Date", 'start_date')
+        self.start_date.pack(side='left', padx=(0, 6),pady=(0, 5))
 
-        CalendarField(self.recurrence_frame, "End Date", 'end_date')\
-            .pack(side='left', padx=(0, 6),pady=(0, 5))
+        self.end_date = CalendarField(self.recurrence_frame, "End Date", 'end_date')
+        self.end_date.pack(side='left', padx=(0, 6),pady=(0, 5))
 
 
     def create_weekly_fields(self):
         self.calendar = None
         days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-        DropdownField(self.recurrence_frame, "Choose Day", 'day_of_week', days, default="Friday")\
-            .pack(side='left',padx=(0, 5), pady=(12, 5))
-
-        self.create_daily_fields()
+        self.weekdays = DropdownField(self.recurrence_frame, "Choose Day", 'day_of_week', days, default="Friday")
+        self.weekdays.pack(side='left',padx=(0, 6), pady=(0, 5))
 
     def frequency_adjustment(self, event=None):
-        frequency = self.frequency_choice.get()
-
-        # Always clear the lower-left changing field
-        self.clear_frequency_specific_fields()
+        frequency = self.frequency.value.get()
 
         if frequency == "One Off":
-            self.clear_start_end_fields()
-            self.create_one_off_fields()
+            self.self.clear_calendars()
+            self.self.create_one_off_fields()
 
         elif frequency == "Daily":
-            self.day_choice = None
-
-            # Only create dates if they don't already exist
-            if (
-                getattr(self, "start_date", None) is None
-                or not self.start_date.winfo_exists()
-            ):
-                self.create_daily_fields()
+            self.clear_calendars()
+            self.create_daily_fields()
 
         elif frequency == "Weekly":
-
-            # Keep existing start/end dates
-            if (
-                getattr(self, "start_date", None) is None
-                or not self.start_date.winfo_exists()
-            ):
-                self.create_daily_fields()
-
+            self.clear_calendars()
+            self.create_daily_fields()
             self.create_weekly_fields()
 
     def submit_new_record(self):
         try:
             subject = self.subject.get().strip().lower()
             task = self.task_name.get().strip().lower()
-            frequency = self.frequency_choice.get().lower()
+            frequency = self.frequency.get().lower()
 
             combinations = []
             for task_info in self.tasks.days_items.values():
@@ -1699,7 +1654,7 @@ class Schedule(ttk.Frame):
 
             if frequency == "one off":
                 self.parent.insert_record(
-                    self.calendar.get(),
+                    self.one_off.get(),
                     self.subject.get().strip(),
                     self.task_name.get().strip()
                 )
@@ -1746,7 +1701,7 @@ class Visuals(ttk.Frame):
         )
         date_choice_label.grid(row=0, column=0)
 
-        self.date_option = tk.StringVar()
+        self.date_option = tk.StringVar(value="Last Week")
         self.date_dropdown = ttk.Combobox(
             self.header_frame,
             textvariable=self.date_option,
@@ -1811,13 +1766,11 @@ class Visuals(ttk.Frame):
     def plot_study(self, dates, total=False):
         start, end = [pd.Timestamp(date).normalize() for date in dates]
         dates = (start, end)
-        print(start, end)
 
         if end <= start + pd.DateOffset(months=1):
             freq = 'daily'
             plot_dates = pd.date_range(start, end, freq='D')
         else:
-            print(start, end)
             freq = 'weekly'
             sunday = pd.offsets.Week(weekday=6)
             plot_dates = pd.date_range(
@@ -2282,7 +2235,6 @@ class TaskManager(ttk.Frame):
         )
         self.delete_label.grid(row=0, column=2, padx=(0, 8))
 
-        print(self.current_dataset)
         self.delete_button = ttk.Button(
             self.header_frame,
             text="Delete",
@@ -2333,7 +2285,6 @@ class ProjectPage(ttk.Frame):
 
         self.parent = parent
         self.projects = {}
-        self.existing_projects = self.parent.existing_projects
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
@@ -2401,22 +2352,22 @@ class ProjectPage(ttk.Frame):
         self.projects[new_id] = ProjectCard(
             self.project_frame,
             name,
+            new_id,
             on_complete=self.complete_project,
         )
-        self.projects[new_id].project_id = new_id
         self.project_name.delete(0, "end")
         self.arrange_projects()
 
     def fill_existing_projects(self):
-        for saved_project in self.active_project_records:
+        for saved_project in self.parent.active_project_records:
             existing_id = saved_project['id']
-            name = saved_project['id']
+            name = saved_project['name']
             self.projects[existing_id] = ProjectCard(
                 self.project_frame,
                 name,
+                existing_id,
                 on_complete=self.complete_project,
             )
-            self.projects[existing_id].project_id = existing_id
             self.arrange_projects()
 
     def complete_project(self, project):
@@ -2628,10 +2579,7 @@ class TreeView(ttk.Frame):
             column_index = int(column[1:]) - 1
             text = self.tree.item(rowid, "values")[column_index]
 
-            print(column, column_index)
-            print('text:',text,'column:',column_index,'id:',rowid)
             column_name = self.names[column_index]
-            print(column_name)
 
             # Create and position the entry over the cell
             self.entryPopup = EntryPopup(self, rowid, column_index, text)
@@ -2683,7 +2631,11 @@ class TreeView(ttk.Frame):
 class ScrollableFrame(ttk.Frame):
 
     def __init__(self, parent):
-        super().__init__(parent, style="Card.TFrame", relief="solid", borderwidth=1)
+        super().__init__(parent, 
+                         style="Page.TFrame",
+                         padding=10,
+                           relief="solid",
+                             borderwidth=1)
 
         self.rowconfigure(0, weight=1)
         self.columnconfigure(0, weight=1)
@@ -2702,7 +2654,7 @@ class ScrollableFrame(ttk.Frame):
 
         self.scrollable_frame = ttk.Frame(
             self.canvas,
-            style="Card.TFrame"
+            style="Page.TFrame"
         )
         self.scrollable_frame.columnconfigure(0,weight=1)
 
@@ -2799,7 +2751,7 @@ class MetricBar(ttk.Frame):
         ).pack(anchor="w")
 
 class CalendarField(ttk.Frame):
-    def __init__(self, parent, label_text, tracking_key):
+    def __init__(self, parent, label_text, tracking_key, **kwargs):
         super().__init__(
             parent,
             style="Card.TFrame",
@@ -2824,7 +2776,8 @@ class CalendarField(ttk.Frame):
         self.calendar = DateEntry(
             self,
             cursor="xterm",
-            date_pattern="yyyy-mm-dd"
+            date_pattern="yyyy-mm-dd",
+            **kwargs
         )
 
         root = self.winfo_toplevel()
@@ -2854,7 +2807,7 @@ class CalendarField(ttk.Frame):
 
 class EntryField(ttk.Frame):
 
-    def __init__(self, parent, label_text, tracking_key, width=18):
+    def __init__(self, parent, label_text, tracking_key, width=18, **kwargs):
         super().__init__(
             parent,
             style="Card.TFrame",
@@ -2879,7 +2832,8 @@ class EntryField(ttk.Frame):
         self.widget = ttk.Entry(
             self,
             cursor="xterm",
-            width=width
+            width=width,
+            **kwargs
         )
 
         self.widget.grid(
@@ -2905,7 +2859,8 @@ class DropdownField(ttk.Frame):
         tracking_key,
         values,
         default=None,
-        width=18
+        width=18,
+        **kwargs
     ):
         super().__init__(
             parent,
@@ -2938,7 +2893,8 @@ class DropdownField(ttk.Frame):
             textvariable=self.value,
             values=values,
             width=width,
-            state="readonly"
+            state="readonly",
+            **kwargs
         )
 
         self.widget.grid(
@@ -2963,7 +2919,7 @@ class DropdownField(ttk.Frame):
         )
 
 class ProjectCard(ttk.LabelFrame):
-    def __init__(self, parent, name, on_complete):
+    def __init__(self, parent, name, project_id, on_complete):
         super().__init__(
             parent,
             text=name,
@@ -2972,8 +2928,8 @@ class ProjectCard(ttk.LabelFrame):
         )
 
         self.project_name = name
-
-        self.milestones = {}
+        self.project_id = project_id
+        self.root = self.winfo_toplevel()
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(4, weight=1)
@@ -3071,20 +3027,22 @@ class ProjectCard(ttk.LabelFrame):
             row=5, column=0, sticky="ew", pady=(12, 0)
         )
 
+        self.add_existing_milestones()
+
     def add_milestone(self, event=None):
         title = self.milestone_name.get().strip()
 
         if not title:
             return
 
-        milestone_id = self.parent.insert_milestone(self, self.project_id, title)
+        milestone_id = self.root.insert_milestone(self, self.project_id, title)
 
-        self.milestones[milestone_id] = tk.BooleanVar(self, value=False)
-        row = len(self.milestones) - 1
+        self.root.milestones[milestone_id] = tk.BooleanVar(self, value=False)
+        row = len(self.root.milestones) - 1
 
         ttk.Checkbutton(
             self.milestone_frame,
-            variable=self.milestones[milestone_id],
+            variable=self.root.milestones[milestone_id],
             command=self.update_progress,
             cursor="hand2",
         ).grid(row=row, column=0, sticky="nw", pady=5)
@@ -3100,16 +3058,16 @@ class ProjectCard(ttk.LabelFrame):
         self.update_progress()
 
     def add_existing_milestones(self):
-        existing_milestones = self.parent.milestone_record_lookup[self.project_id]
+        existing_milestones = self.root.milestone_record_lookup[self.project_id]
         for record in existing_milestones:
             name = record['name']
             milestone_id = record['id']
-            self.milestones[milestone_id] = tk.BooleanVar(self, value=False)
-            row = len(self.milestones) - 1
+            self.root.milestones[milestone_id] = tk.BooleanVar(self, value=False)
+            row = len(self.root.milestones) - 1
 
             ttk.Checkbutton(
                 self.milestone_frame,
-                variable=self.milestones[milestone_id],
+                variable=self.root.milestones[milestone_id],
                 command=self.update_progress,
                 cursor="hand2",
             ).grid(row=row, column=0, sticky="nw", pady=5)
@@ -3136,23 +3094,15 @@ class ProjectCard(ttk.LabelFrame):
                 )
 
     def update_progress(self):
-        total = len(self.milestones)
-        completed = sum(
-            variable.get() for variable in self.milestones
-        )
+        total = len(self.root.milestones)
 
-        self.progress["value"] = (
-            completed / total * 100 if total else 0
-        )
-        self.progress_text["text"] = (
-            f"{completed} / {total} milestones completed"
-        )
+        completed = sum(variable.get() for variable in self.root.milestones.values())
 
-        self.complete_button["state"] = (
-            "normal"
-            if total and completed == total
-            else "disabled"
-        )
+        self.progress["value"] = (completed / total * 100 if total else 0)
+
+        self.progress_text["text"] = (f"{completed} / {total} milestones completed")
+
+        self.complete_button["state"] = ("normal" if total and completed == total else "disabled")
 
 #####################
 # Custom Widgets
