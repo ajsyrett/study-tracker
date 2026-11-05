@@ -501,6 +501,20 @@ class Application(tk.Tk):
            'milestones':milestones
        }
 
+        self.subjects = self.data_lookup['sessions']['subject'].unique().tolist()
+
+        projects_df = (
+            self.data_lookup["projects"]
+            .drop_duplicates(subset="name", keep="first")
+        )
+
+        if self.data_lookup["projects"].shape != projects_df.shape:
+            print('multiple records removed')
+
+        self.projects = projects_df["name"].tolist()
+        self.project_ids = projects_df["id"].tolist()
+        self.project_lookup = dict(zip(self.projects, self.project_ids))
+
     def get_targets(self, reload=False):
         # code to set up the weekly targets to fill into the lower left panel
         sessions = self.data_lookup['sessions']
@@ -518,20 +532,27 @@ class Application(tk.Tk):
         # we make the project id column hold both the project id and subject
         # we do this because we need to join to weekly target table which has either
         # project id or subject
-        sessions["project_id"] = sessions["project_id"].fillna(sessions["subject"])
+        sessions["common_id"] = sessions["project_id"].fillna(sessions["subject"])
 
         # only get this weeks data then group by the project ids and subjects in the common column to get total minutes
         # and hours
-        last_week_data = sessions.query('date > @monday').groupby('project_id', as_index = False)[['minutes','completed']].sum()\
+        last_week_data = sessions.query('date > @monday').groupby('common_id', as_index = False)[['minutes','completed']].sum()\
         .assign(hours=lambda df: df["minutes"] // 60)
 
         # filter down to the active targets.  we only want 3 max so we'll raise an error if there's more
-        active_targets = weekly_targets.query('active == 1')[['subject', 'description', 'project_id', 'metric', 'target']]
+        active_targets = weekly_targets.query('active == 1')[['subject', 'description', 'project_id', 'metric', 'target','id']]
         if len(active_targets) > 3:
             raise ValueError("You cannot have more than 3 targets.")
-        
-        active_targets["project_id"] = active_targets["project_id"].fillna(active_targets["subject"])
-        combined_df = last_week_data.merge(active_targets, on='project_id')
+
+        def classify_type(row):
+           subject_col = row['subject']
+           if pd.isna(subject_col):
+               return 'project'
+           return 'subject'
+
+        active_targets["applied_to"] = active_targets.apply(classify_type, axis=1)
+        active_targets["common_id"] = active_targets["project_id"].fillna(active_targets["subject"])
+        combined_df = last_week_data.merge(active_targets, on='common_id')
        
         def get_metric_column(row):
 
@@ -544,26 +565,43 @@ class Application(tk.Tk):
                return row['hours']
  
         combined_df['current'] = combined_df.apply(get_metric_column, axis=1)
-        self.target_subjects = combined_df[['description','metric', 'current', 'target','project_id']]
-        print(self.target_subjects)
+        cols = ['id', 'description','metric', 'current', 
+                'target', 'applied_to', 'common_id']
+        self.target_subjects = combined_df[cols]
 
     def fill_target_panel(self):
         target_df = self.target_subjects
+
+        self.target_info = []
+
         for i in range(1,4):
             j = i-1
-            _id = target_df.loc[j,'project_id']
+            _id = target_df.loc[j,'id']
             metric = target_df.loc[j,'metric']
             title = target_df.loc[j,'description']
             current = target_df.loc[j,'current']
             target = target_df.loc[j,'target']
-
+            
             # in the tables we have a completed column.  that means tasked completed
             # so we change it to task so that it will read tasks completed
-            metric = metric if metric == 'completed' else 'tasks'
+            metric = metric if metric != 'completed' else 'tasks'
             text = f"{metric} completed"
 
-            self.target_charts[_id] = MetricBar(self.weekly_progress, title, current, target, text=text)
+            self.target_charts[_id] = MetricBar(self.weekly_progress, title, current, metric, target, text=text)
             self.target_charts[_id].grid(column=0, row=i, sticky='ew')
+
+    def update_current(self, _id, delta, adding=True):
+        # Update the progress bar and label.
+        self.last_add = delta
+        if adding:
+            self.current+=delta
+        else:
+            self.current-=self.last_add
+
+        self.target_charts[_id].bar.configure(value=self.current)
+        self.progress_label.configure(
+            text=f"{self.current} / {self.target} — {self.text}"
+        )
 
     def insert_weekly_target(
         self,
@@ -637,6 +675,13 @@ class Application(tk.Tk):
             WHERE date = ?
             AND canceled != 1
         """, (date,)).fetchall()
+
+    def retrieve_active_targets(self):
+
+        return self.conn.execute("""
+            SELECT * FROM weekly_targets
+            AND active = 1
+        """).fetchall()
 
     def retrieve_recurring_tasks(self):
 
@@ -777,15 +822,10 @@ class Targets(ttk.Frame):
         self.parent = parent
 
         # Temporary data
-        self.subjects = self.parent.data_lookup['sessions']['subject'].unique().tolist()
+        self.subjects = self.parent.subjects
 
-        projects_df = (
-            self.parent.data_lookup["projects"]
-            .drop_duplicates(subset="name", keep="first")
-        )
-
-        self.projects = projects_df["name"].tolist()
-        self.project_ids = projects_df["id"].tolist()
+        self.projects = self.parent.projects
+        self.project_ids = self.parent.project_ids
         self.project_lookup = dict(zip(self.projects, self.project_ids))
 
         # Variables
@@ -814,10 +854,7 @@ class Targets(ttk.Frame):
         # Weekly Target Form
         # ==========================================
 
-        self.week_targets = ttk.Frame(
-            self,
-            style="Card.TFrame",
-        )
+        self.week_targets = ttk.Frame(self, style="Card.TFrame")
 
         self.week_targets.grid(
             row=1,
@@ -852,9 +889,7 @@ class Targets(ttk.Frame):
             style="Card.TFrame",
         )
 
-        radio_button_container.pack(
-            anchor="w"
-        )
+        radio_button_container.pack(anchor="w")
 
         subject_button = ttk.Radiobutton(
             radio_button_container,
@@ -1154,13 +1189,6 @@ class Targets(ttk.Frame):
 
         print('update complete')
 
-    def update_current(self, current):
-        # Update the progress bar and label.
-        self.bar.configure(value=current)
-        self.progress_label.configure(
-            text=f"{current} / {self.target} — {self.text}"
-        )
-
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
         super().__init__(
@@ -1170,6 +1198,8 @@ class Tasks(ttk.Frame):
         )
 
         self.parent = parent
+
+        self.target_contributors = {}
 
         # dictionary to track record read in by id number
         self.days_items = {}
@@ -1255,6 +1285,8 @@ class Tasks(ttk.Frame):
         )
 
     def add_task(self, record):
+        self.task_target_contributors(record)
+
         task_id = record["id"]
         subject = record["subject"]
 
@@ -1310,6 +1342,7 @@ class Tasks(ttk.Frame):
             subject_frame, cursor="hand2",
             text=task_name,
             variable=self.check_boxes[task_id],
+            command=lambda task_id=task_id: self.checkbox_changed(task_id)
         )
         checkbox.grid(
             row=row, column=0,
@@ -1453,6 +1486,40 @@ class Tasks(ttk.Frame):
             if record["id"] not in self.days_items:
                 self.add_task(record)
 
+    def task_target_contributors(self, task_record):
+        task_id = task_record["id"]
+        task_subject = task_record["subject"]
+        task_project_id = task_record["project_id"]
+
+        target_records = self.parent.retrieve_active_targets()
+
+        contributors = []
+
+        for target_record in target_records:
+            target_id = target_record["id"]
+            target_metric = target_record["metric"]
+            target_project_id = target_record["project_id"]
+            target_subject = target_record["subject"]
+
+            # Project target
+            if target_project_id is not None:
+                if target_project_id == task_project_id:
+                    contributors.append({
+                        "target_id": target_id,
+                        "metric": target_metric,
+                        "already_contributed": 0
+                    })
+
+            # Subject target
+            elif target_subject == task_subject:
+                contributors.append({
+                    "target_id": target_id,
+                    "metric": target_metric,
+                    "already_contributed": 0
+                })
+
+        self.target_contributors[task_id] = contributors
+            
     def change_date(self, event=None):
         for frame in self.subject_frames.values():
             frame.destroy()
@@ -2999,11 +3066,15 @@ class ScrollableFrame(ttk.Frame):
         )
 
 class MetricBar(ttk.Frame):
-    def __init__(self, parent, title, current, target, text=""):
+    def __init__(self, parent, title, current, metric, target, text=""):
         super().__init__(
             parent,
             padding=10,
-            style="Card.TFrame"        )
+            style="Card.TFrame")
+
+        self.current = current
+        self.metric = metric
+        self.target = target
 
         # Card heading
         ttk.Label(
@@ -3021,11 +3092,13 @@ class MetricBar(ttk.Frame):
         )
         self.bar.pack(fill="x", pady=8)
 
-        ttk.Label(
+        self.label = ttk.Label(
             self,
-            text=f"{current} / {target} — {text}",
+            text=f"{current} / {target} {text}",
             style="Muted.TLabel",
-        ).pack(anchor="w")
+        )
+        
+        self.label.pack(anchor="w")
 
 class CalendarField(ttk.Frame):
     def __init__(self, parent, label_text, tracking_key, **kwargs):
