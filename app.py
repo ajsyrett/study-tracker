@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from collections import defaultdict
 import time
 from pathlib import Path
@@ -211,48 +211,56 @@ def main():
     app.mainloop()
 
 opening_query_sessions = """
-    CREATE TABLE IF NOT EXISTS sessions (
-        id INTEGER PRIMARY KEY,
-        date TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        task TEXT NOT NULL,
-        minutes INTEGER NOT NULL,
-        completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
-        canceled INTEGER NOT NULL DEFAULT 0 CHECK (canceled IN (0, 1)),
-        recurring_id INTEGER,
-        FOREIGN KEY (recurring_id) REFERENCES recurring_tasks(id)
-    );
+CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY,
+    date TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    task TEXT NOT NULL,
+    minutes INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0 CHECK (completed IN (0, 1)),
+    canceled INTEGER NOT NULL DEFAULT 0 CHECK (canceled IN (0, 1)),
+    recurring_id INTEGER,
+    project_id INTEGER,
+    FOREIGN KEY (recurring_id) REFERENCES recurring_tasks(id),
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+);
 """
 
 opening_query_recurring_tasks = """
-    CREATE TABLE IF NOT EXISTS recurring_tasks (
-        id INTEGER PRIMARY KEY,
-        subject TEXT NOT NULL,
-        task TEXT NOT NULL,
-        frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly')),
-        day TEXT,
-        start_date TEXT,
-        end_date TEXT
-    );
+CREATE TABLE IF NOT EXISTS recurring_tasks (
+    id INTEGER PRIMARY KEY,
+    subject TEXT NOT NULL,
+    task TEXT NOT NULL,
+    frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly')),
+    day TEXT,
+    start_date TEXT,
+    end_date TEXT,
+    project_id INTEGER,
+    FOREIGN KEY (project_id) REFERENCES projects(id)
+);
 """
 
 opening_query_projects = """
-    CREATE TABLE IF NOT EXISTS projects (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        completed INTEGER NOT NULL DEFAULT 0
-            CHECK (completed IN (0, 1))
-    );
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    completed INTEGER NOT NULL DEFAULT 0
+        CHECK (completed IN (0, 1))
+);
 """
 
 opening_query_milestones = """
-    CREATE TABLE IF NOT EXISTS milestones (
-        id INTEGER PRIMARY KEY,
-        project_id INTEGER NOT NULL,
-        name TEXT NOT NULL,
-        completed INTEGER NOT NULL DEFAULT 0
-            CHECK (completed IN (0, 1)),
-        FOREIGN KEY (project_id) REFERENCES projects(id)
+CREATE TABLE IF NOT EXISTS milestones (
+    id INTEGER PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    start_date TEXT,
+    end_date TEXT,
+    completed INTEGER NOT NULL DEFAULT 0
+        CHECK (completed IN (0, 1)),
+    FOREIGN KEY (project_id) REFERENCES projects(id)
 );
 """
 
@@ -260,6 +268,7 @@ opening_query_targets = """
 CREATE TABLE IF NOT EXISTS weekly_targets (
     id INTEGER PRIMARY KEY,
     date TEXT NOT NULL,
+    description TEXT,
     subject TEXT,
     project_id INTEGER,
     metric TEXT NOT NULL
@@ -289,6 +298,7 @@ class Application(tk.Tk):
         self.calendars = {}
         self.widgets = {}
         self.milestones = {}
+        self.target_charts = {}
 
 
         self.conn = sqlite3.connect("study_tracker.db")
@@ -303,6 +313,7 @@ class Application(tk.Tk):
         self.title("Study Tracker")
         self.geometry("1080x650")
         self.load_data()
+        self.get_targets()
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -378,15 +389,8 @@ class Application(tk.Tk):
         self.weekly_progress.columnconfigure(0,weight=1)
         ttk.Label(self.weekly_progress, text="Targets This Week", style="Heading.TLabel")\
             .grid(row=0, column=0, sticky="w")
-        target_df = self.target_subjects
-        for i in range(1,4):
-            j = i-1
-            title = target_df.loc[j,'subject']
-            current = target_df.loc[j,'current']
-            target = target_df.loc[j,'target']
 
-            bar = MetricBar(self.weekly_progress, title, current, target, text="placeholder")
-            bar.grid(column=0, row=i, sticky='ew')
+        self.fill_target_panel()
 
         stop_watch_and_task_adder = ttk.Frame(
             self.main_tab,
@@ -466,30 +470,30 @@ class Application(tk.Tk):
         )
 
     def load_data(self):
-       rows = self.conn.execute("SELECT * FROM sessions").fetchall()
-       sessions = pd.DataFrame([dict(row) for row in rows])
-       self.df=sessions
+        rows = self.conn.execute("SELECT * FROM sessions").fetchall()
+        sessions = pd.DataFrame([dict(row) for row in rows])
+        self.df=sessions
 
-       rows = self.conn.execute("SELECT * FROM recurring_tasks").fetchall()
-       recurring_tasks = pd.DataFrame([dict(row) for row in rows])
+        rows = self.conn.execute("SELECT * FROM recurring_tasks").fetchall()
+        recurring_tasks = pd.DataFrame([dict(row) for row in rows])
 
-       rows = self.conn.execute("SELECT * FROM weekly_targets").fetchall()
-       weekly_targets = pd.DataFrame([dict(row) for row in rows])
+        rows = self.conn.execute("SELECT * FROM weekly_targets").fetchall()
+        weekly_targets = pd.DataFrame([dict(row) for row in rows])
 
-       rows = self.conn.execute("SELECT * FROM projects").fetchall()
-       self.active_project_records = [row for row in rows if row['completed']==0]
-       active_project_ids = [row['id'] for row in self.active_project_records]
-       projects = pd.DataFrame([dict(row) for row in rows])
+        rows = self.conn.execute("SELECT * FROM projects").fetchall()
+        self.active_project_records = [row for row in rows if row['completed']==0]
+        active_project_ids = [row['id'] for row in self.active_project_records]
+        projects = pd.DataFrame([dict(row) for row in rows])
 
-       rows = self.conn.execute("SELECT * FROM milestones").fetchall()
-       milestones = pd.DataFrame([dict(row) for row in rows])
-       self.active_milestones = [row for row in rows if row['project_id'] in active_project_ids]
+        rows = self.conn.execute("SELECT * FROM milestones").fetchall()
+        milestones = pd.DataFrame([dict(row) for row in rows])
+        self.active_milestones = [row for row in rows if row['project_id'] in active_project_ids]
 
-       self.milestone_record_lookup = defaultdict(list)
-       for record in self.active_milestones:
+        self.milestone_record_lookup = defaultdict(list)
+        for record in self.active_milestones:
            self.milestone_record_lookup[record['project_id']].append(record)
            
-       self.data_lookup = {
+        self.data_lookup = {
            'sessions':sessions,
            'recurring_tasks':recurring_tasks,
            'weekly_targets':weekly_targets,
@@ -497,14 +501,39 @@ class Application(tk.Tk):
            'milestones':milestones
        }
 
-       week_start = "2026-10-25"
-       last_week_data = sessions.query('date > @week_start').groupby('subject', as_index = False)[['minutes','completed']].sum()\
+    def get_targets(self, reload=False):
+        # code to set up the weekly targets to fill into the lower left panel
+        sessions = self.data_lookup['sessions']
+        if reload:
+            rows = self.conn.execute("SELECT * FROM weekly_targets").fetchall()
+            weekly_targets = pd.DataFrame([dict(row) for row in rows])
+        else:
+            weekly_targets = self.data_lookup['weekly_targets']
+
+        # set the beginning of the week to monday
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        monday = monday.strftime("%Y-%m-%d")
+
+        # we make the project id column hold both the project id and subject
+        # we do this because we need to join to weekly target table which has either
+        # project id or subject
+        sessions["project_id"] = sessions["project_id"].fillna(sessions["subject"])
+
+        # only get this weeks data then group by the project ids and subjects in the common column to get total minutes
+        # and hours
+        last_week_data = sessions.query('date > @monday').groupby('project_id', as_index = False)[['minutes','completed']].sum()\
         .assign(hours=lambda df: df["minutes"] // 60)
-       active_targets = weekly_targets.query('active == 1')[['subject', 'metric', 'target']]
+
+        # filter down to the active targets.  we only want 3 max so we'll raise an error if there's more
+        active_targets = weekly_targets.query('active == 1')[['subject', 'description', 'project_id', 'metric', 'target']]
+        if len(active_targets) > 3:
+            raise ValueError("You cannot have more than 3 targets.")
+        
+        active_targets["project_id"] = active_targets["project_id"].fillna(active_targets["subject"])
+        combined_df = last_week_data.merge(active_targets, on='project_id')
        
-       combined_df = last_week_data.merge(active_targets, on='subject')
-       
-       def get_metric_column(row):
+        def get_metric_column(row):
 
            metric = row['metric']
            if metric == 'completed':
@@ -513,10 +542,55 @@ class Application(tk.Tk):
                return row['minutes']
            else:
                return row['hours']
+ 
+        combined_df['current'] = combined_df.apply(get_metric_column, axis=1)
+        self.target_subjects = combined_df[['description','metric', 'current', 'target','project_id']]
+        print(self.target_subjects)
 
-       combined_df['current'] = combined_df.apply(get_metric_column, axis=1)
+    def fill_target_panel(self):
+        target_df = self.target_subjects
+        for i in range(1,4):
+            j = i-1
+            _id = target_df.loc[j,'project_id']
+            metric = target_df.loc[j,'metric']
+            title = target_df.loc[j,'description']
+            current = target_df.loc[j,'current']
+            target = target_df.loc[j,'target']
 
-       self.target_subjects = combined_df
+            # in the tables we have a completed column.  that means tasked completed
+            # so we change it to task so that it will read tasks completed
+            metric = metric if metric == 'completed' else 'tasks'
+            text = f"{metric} completed"
+
+            self.target_charts[_id] = MetricBar(self.weekly_progress, title, current, target, text=text)
+            self.target_charts[_id].grid(column=0, row=i, sticky='ew')
+
+    def insert_weekly_target(
+        self,
+        description,
+        metric,
+        target,
+        subject=None,
+        project_id=None,
+        active=1,
+    ):
+        # Supply either a subject or a project_id, but not both.
+        if (subject is None) == (project_id is None):
+            raise ValueError("Choose either a subject or a project.")
+
+        date = datetime.now().strftime("%Y-%m-%d")
+
+        cursor = self.conn.execute(
+            """
+            INSERT INTO weekly_targets
+                (date, description, subject, project_id, metric, target, active)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (date, description, subject, project_id, metric, target, active),
+        )
+        self.conn.commit()
+
+        return cursor.lastrowid
 
     def insert_project(self, name, completed=0):
         self.cursor.execute(
@@ -693,9 +767,9 @@ class Application(tk.Tk):
 #####################
 
 class Targets(ttk.Frame):
-    def __init__(self, parent, on_add=None):
+    def __init__(self, new_frame, parent):
         super().__init__(
-            parent,
+            new_frame,
             style="Card.TFrame",
             padding=12,
         )
@@ -703,8 +777,16 @@ class Targets(ttk.Frame):
         self.parent = parent
 
         # Temporary data
-        self.subjects = ["French", "Python", "SQL"]
-        self.projects = ["Finish App", "Do Homework"]
+        self.subjects = self.parent.data_lookup['sessions']['subject'].unique().tolist()
+
+        projects_df = (
+            self.parent.data_lookup["projects"]
+            .drop_duplicates(subset="name", keep="first")
+        )
+
+        self.projects = projects_df["name"].tolist()
+        self.project_ids = projects_df["id"].tolist()
+        self.project_lookup = dict(zip(self.projects, self.project_ids))
 
         # Variables
         self.target_type = tk.StringVar(value="subject")
@@ -1012,6 +1094,72 @@ class Targets(ttk.Frame):
         )
 
         self.update_preview()
+
+    def add_weekly_target(self):
+        conn = self.parent.conn
+        name = self.target_choice.get().strip()
+
+        try:
+            amount = int(self.amount.get())
+        except ValueError:
+            raise ValueError("Enter a whole number for the target.")
+
+        if amount <= 0:
+            raise ValueError("The target must be greater than zero.")
+        
+        metric = {
+            "Minutes": "minutes",
+            "Hours": "hours",
+            "Tasks": "completed",
+        }.get(self.measure.get())
+
+        if metric is None:
+            raise ValueError("Choose a measure.")
+
+        today = date.today()
+        monday = (today - timedelta(days=today.weekday())).isoformat()
+
+        # Allow up to three active targets for this week.
+        count = self.parent.conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM weekly_targets
+            WHERE date = ? AND active = 1
+            """,
+            (monday,),
+        ).fetchone()[0]
+
+        if count >= 3:
+            raise ValueError("You already have three targets for this week.")
+
+        subject = None
+        project_id = None
+
+        if self.target_type.get() == "subject":
+            subject = name
+        else:
+            project_id = self.project_lookup[name]
+
+        # Refresh the preview in case the amount changed.
+        self.update_preview()
+
+        self.parent.insert_weekly_target(
+            description=self.preview.get(),
+            metric=metric,
+            target=amount,
+            subject=subject,
+            project_id=project_id,
+            active=1,
+        )
+
+        print('update complete')
+
+    def update_current(self, current):
+        # Update the progress bar and label.
+        self.bar.configure(value=current)
+        self.progress_label.configure(
+            text=f"{current} / {self.target} — {self.text}"
+        )
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -1752,8 +1900,8 @@ class Schedule(ttk.Frame):
         frequency = self.frequency.value.get()
 
         if frequency == "One Off":
-            self.self.clear_calendars()
-            self.self.create_one_off_fields()
+            self.clear_calendars()
+            self.create_one_off_fields()
 
         elif frequency == "Daily":
             self.clear_calendars()
@@ -2861,7 +3009,7 @@ class MetricBar(ttk.Frame):
         ttk.Label(
             self,
             text=title,
-            style="Heading.TLabel",
+            style="Subject.TLabel",
         ).pack(anchor="w")
 
         # Progress toward the target
