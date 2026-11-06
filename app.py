@@ -294,6 +294,8 @@ class Application(tk.Tk):
     def __init__(self):
         super().__init__()
 
+        self.first_run = True
+
         configure_appearance(self)
         self.calendars = {}
         self.widgets = {}
@@ -387,8 +389,8 @@ class Application(tk.Tk):
             pady=(10,0)
         )
         self.weekly_progress.columnconfigure(0,weight=1)
-        ttk.Label(self.weekly_progress, text="Targets This Week", style="Heading.TLabel")\
-            .grid(row=0, column=0, sticky="w")
+        self.target_header = ttk.Label(self.weekly_progress, text="Targets This Week", style="Heading.TLabel")
+        self.target_header.grid(row=0, column=0, sticky="w")
 
         self.fill_target_panel()
 
@@ -469,6 +471,8 @@ class Application(tk.Tk):
             text="Projects",
         )
 
+        self.first_run = False
+
     def load_data(self):
         rows = self.conn.execute("SELECT * FROM sessions").fetchall()
         sessions = pd.DataFrame([dict(row) for row in rows])
@@ -511,33 +515,50 @@ class Application(tk.Tk):
         if self.data_lookup["projects"].shape != projects_df.shape:
             print('multiple records removed')
 
-        self.projects = projects_df["name"].tolist()
+        self.projects_list = projects_df["name"].tolist()
         self.project_ids = projects_df["id"].tolist()
-        self.project_lookup = dict(zip(self.projects, self.project_ids))
+        self.project_lookup = dict(zip(self.projects_list, self.project_ids))
 
-    def get_targets(self, reload=False):
+    def get_targets(self):
         # code to set up the weekly targets to fill into the lower left panel
         sessions = self.data_lookup['sessions']
-        if reload:
+        if not self.first_run:
             rows = self.conn.execute("SELECT * FROM weekly_targets").fetchall()
             weekly_targets = pd.DataFrame([dict(row) for row in rows])
+            query = """
+            SELECT *
+            FROM sessions
+            WHERE completed = 1
+            AND date >= date('now', 'localtime', 'weekday 0', '-6 days')
+            AND date < date('now', 'localtime', 'weekday 0', '+1 day');
+            """
+            rows = self.conn.execute(query).fetchall()
+            last_week_data = pd.DataFrame([dict(row) for row in rows])
         else:
             weekly_targets = self.data_lookup['weekly_targets']
+            sessions = self.data_lookup['sessions']
 
-        # set the beginning of the week to monday
-        today = date.today()
-        monday = today - timedelta(days=today.weekday())
-        monday = monday.strftime("%Y-%m-%d")
+            today = date.today()
+            monday = today - timedelta(days=today.weekday())
+            sunday = monday + timedelta(days=6)
 
-        # we make the project id column hold both the project id and subject
-        # we do this because we need to join to weekly target table which has either
-        # project id or subject
+            monday = monday.strftime("%Y-%m-%d")
+            sunday = sunday.strftime("%Y-%m-%d")
+
+            last_week_data = sessions.query('date >= @monday and date <= @sunday and completed == 1')
+
+
         sessions["common_id"] = sessions["project_id"].fillna(sessions["subject"])
+        
+        x = last_week_data.groupby('subject', as_index = False)[['minutes','completed']].sum()\
+            .assign(hours=lambda df: df["minutes"] / 60)\
+            .rename(columns = {'subject':'common_id'})
 
-        # only get this weeks data then group by the project ids and subjects in the common column to get total minutes
-        # and hours
-        last_week_data = sessions.query('date > @monday').groupby('common_id', as_index = False)[['minutes','completed']].sum()\
-        .assign(hours=lambda df: df["minutes"] // 60)
+        y = last_week_data.groupby('project_id', as_index = False)[['minutes','completed']].sum()\
+            .assign(hours=lambda df: df["minutes"] / 60)\
+            .rename(columns = {'project_id':'common_id'})
+
+        last_week_data = pd.concat([x,y])
 
         # filter down to the active targets.  we only want 3 max so we'll raise an error if there's more
         active_targets = weekly_targets.query('active == 1')[['subject', 'description', 'project_id', 'metric', 'target','id']]
@@ -552,8 +573,20 @@ class Application(tk.Tk):
 
         active_targets["applied_to"] = active_targets.apply(classify_type, axis=1)
         active_targets["common_id"] = active_targets["project_id"].fillna(active_targets["subject"])
-        combined_df = last_week_data.merge(active_targets, on='common_id')
-       
+
+        last_week_data["common_id"] = last_week_data["common_id"].astype(object)
+        active_targets["common_id"] = active_targets["common_id"].astype(object)
+
+        combined_df = active_targets.merge(
+            last_week_data,
+            on="common_id",
+            how="left",
+        )
+
+        # Targets without matching sessions start at zero.
+        columns = ["minutes", "hours", "completed"]
+        combined_df[columns] = combined_df[columns].fillna(0)
+
         def get_metric_column(row):
 
            metric = row['metric']
@@ -571,14 +604,22 @@ class Application(tk.Tk):
 
     def fill_target_panel(self):
         target_df = self.target_subjects
+        
+        if target_df.empty:
+            ttk.Label(
+                self.weekly_progress,
+                text="No goals this week get your shit together",
+                style="Muted.TLabel",
+            ).grid(row=1, column=0, sticky="w", padx=10, pady=10)
+            return
 
-        self.target_info = []
 
-        for i in range(1,4):
+        for i in range(1, len(target_df) + 1):
             j = i-1
             _id = target_df.loc[j,'id']
             metric = target_df.loc[j,'metric']
             title = target_df.loc[j,'description']
+            print(title)
             current = target_df.loc[j,'current']
             target = target_df.loc[j,'target']
             
@@ -589,19 +630,6 @@ class Application(tk.Tk):
 
             self.target_charts[_id] = MetricBar(self.weekly_progress, title, current, metric, target, text=text)
             self.target_charts[_id].grid(column=0, row=i, sticky='ew')
-
-    def update_current(self, _id, delta, adding=True):
-        # Update the progress bar and label.
-        self.last_add = delta
-        if adding:
-            self.current+=delta
-        else:
-            self.current-=self.last_add
-
-        self.target_charts[_id].bar.configure(value=self.current)
-        self.progress_label.configure(
-            text=f"{self.current} / {self.target} — {self.text}"
-        )
 
     def insert_weekly_target(
         self,
@@ -646,11 +674,6 @@ class Application(tk.Tk):
 
         return self.cursor.lastrowid
 
-    def change_stats_period(self, event=None):
-        period = self.stats_period.get()
-        self.statistics_tab.set_period(period)
-        self.visuals_tab.set_period(period)
-
     def insert_milestone(self, project_id, name, completed=0):
         self.cursor.execute(
             """
@@ -680,7 +703,7 @@ class Application(tk.Tk):
 
         return self.conn.execute("""
             SELECT * FROM weekly_targets
-            AND active = 1
+            WHERE active = 1
         """).fetchall()
 
     def retrieve_recurring_tasks(self):
@@ -713,21 +736,26 @@ class Application(tk.Tk):
             )
         """, (day,)).fetchall()
 
-    def insert_record(self, date, subject, task, minutes=0, completed=0, canceled=0, recurring_id=None):
-        
+    def insert_record(self,date,subject,task,minutes=0,completed=0,canceled=0,recurring_id=None,project_id=None):
         with self.conn:
-            self.conn.execute("""
-                INSERT INTO sessions (date, subject, task, minutes, completed, canceled, recurring_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (date, subject, task, minutes, completed, canceled, recurring_id))
+            self.conn.execute(
+                """
+                INSERT INTO sessions (
+                    date, subject, task, minutes, completed,
+                    canceled, recurring_id, project_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (date,subject,task,minutes,completed,canceled,recurring_id,project_id,),)
 
-    def insert_recurring_task(self, subject, task, frequency, day=None):
-      
+    def insert_recurring_task(self, subject, task, frequency, day=None, project_id=None):
         with self.conn:
-            cursor = self.conn.execute("""
-                INSERT INTO recurring_tasks (subject, task, frequency, day)
-                VALUES (?, ?, ?, ?)
-            """, (subject, task, frequency, day))
+            cursor = self.conn.execute(
+                """
+                INSERT INTO recurring_tasks (
+                    subject, task, frequency, day, project_id
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,(subject, task, frequency, day, project_id),)
 
         return cursor.lastrowid
 
@@ -755,19 +783,6 @@ class Application(tk.Tk):
                 DELETE FROM {table}
                 WHERE id = ?
             """, (id,))
-
-    def retrieve_new_records(self, date, existing_ids):
-        existing_ids = tuple(existing_ids)
-        placeholders = ", ".join("?" for _ in existing_ids)
-
-        query = "SELECT * FROM sessions WHERE date = ?"
-
-        if existing_ids:
-            query += f" AND id NOT IN ({placeholders})"
-
-        parameters = (date,) + existing_ids
-
-        return self.conn.execute(query, parameters).fetchall()
 
     def update_record(self, id, table, column, value):
 
@@ -824,7 +839,7 @@ class Targets(ttk.Frame):
         # Temporary data
         self.subjects = self.parent.subjects
 
-        self.projects = self.parent.projects
+        self.projects = self.parent.projects_list
         self.project_ids = self.parent.project_ids
         self.project_lookup = dict(zip(self.projects, self.project_ids))
 
@@ -993,11 +1008,17 @@ class Targets(ttk.Frame):
             sticky="ew"
         )
 
+        if len(self.parent.target_charts) >= 3:
+            state='disabled'
+        else:
+            state='normal'
         self.add_button = ttk.Button(
             self.submit_and_remove_frame,
             cursor="hand2",
             text="Add Target",
-            style="Accent.TButton"
+            style="Accent.TButton",
+            state=state,
+            command=self.add_weekly_target
         )
 
         self.add_button.pack(
@@ -1045,13 +1066,20 @@ class Targets(ttk.Frame):
             padx=(12,0),
         )
 
+        if len(self.parent.target_charts) == 0:
+            state='disabled'
+        else:
+            state='normal'
         self.remove_button = ttk.Button(
             self.submit_and_remove_frame,
             text="Remove",
             cursor="hand2",
-            style="Accent.TButton"
-            # command=self.remove_weekly_target
+            style="Accent.TButton",
+            state=state,
+            command=self.remove_weekly_target
         )
+
+        self.refresh_remove_choices()
 
         self.remove_button.pack(
             side='left',
@@ -1131,7 +1159,6 @@ class Targets(ttk.Frame):
         self.update_preview()
 
     def add_weekly_target(self):
-        conn = self.parent.conn
         name = self.target_choice.get().strip()
 
         try:
@@ -1150,22 +1177,6 @@ class Targets(ttk.Frame):
 
         if metric is None:
             raise ValueError("Choose a measure.")
-
-        today = date.today()
-        monday = (today - timedelta(days=today.weekday())).isoformat()
-
-        # Allow up to three active targets for this week.
-        count = self.parent.conn.execute(
-            """
-            SELECT COUNT(*)
-            FROM weekly_targets
-            WHERE date = ? AND active = 1
-            """,
-            (monday,),
-        ).fetchone()[0]
-
-        if count >= 3:
-            raise ValueError("You already have three targets for this week.")
 
         subject = None
         project_id = None
@@ -1187,7 +1198,70 @@ class Targets(ttk.Frame):
             active=1,
         )
 
-        print('update complete')
+        self.parent.get_targets()
+
+        for widget in self.parent.weekly_progress.winfo_children():
+            if widget is not self.parent.target_header:
+                widget.destroy()
+
+        self.parent.target_charts.clear()
+
+        self.parent.fill_target_panel()
+
+        if len(self.parent.target_charts) >= 3:
+            self.add_button.configure(state="disable")
+
+        self.refresh_remove_choices()
+
+    def refresh_remove_choices(self):
+        rows = self.parent.conn.execute(
+            """
+            SELECT MIN(id) AS id, description
+            FROM weekly_targets
+            WHERE active = 1
+            GROUP BY description
+            ORDER BY id
+            """
+        ).fetchall()
+
+        self.remove_target_lookup = {row["description"]: row["id"] for row in rows}
+
+        choices = list(self.remove_target_lookup)
+
+        self.remove_target.widget.configure(values=choices)
+        self.remove_target.widget.set(choices[0] if choices else "")
+
+        self.remove_button.configure(
+            state="normal" if choices else "disabled"
+        )
+
+    def remove_weekly_target(self):
+        selection = self.remove_target.get()
+        target_id = self.remove_target_lookup.get(selection)
+
+        if target_id is None:
+            return
+
+        self.parent.conn.execute(
+            "UPDATE weekly_targets SET active = 0 WHERE id = ?",
+            (target_id,),
+        )
+        self.parent.conn.commit()
+
+        chart = self.parent.target_charts.pop(target_id, None)
+        if chart is not None:
+            chart.destroy()
+
+        self.add_button.configure(state="normal")
+
+        self.refresh_remove_choices()
+
+        if len(self.parent.target_charts) == 0:
+            ttk.Label(
+                self.parent.weekly_progress,
+                text="No goals this week get your shit together",
+                style="Muted.TLabel",
+            ).grid(row=1, column=0, sticky="w", padx=10, pady=10)
 
 class Tasks(ttk.Frame):
     def __init__(self, canvas, parent):
@@ -1352,6 +1426,51 @@ class Tasks(ttk.Frame):
 
         self.row_widgets[task_id].append(checkbox)
 
+    def checkbox_changed(self, task_id):
+        completed = self.check_boxes[task_id].get()
+
+        for contributor in self.target_contributors.get(task_id, []):
+            metric = contributor["metric"]
+
+            bar = self.parent.target_charts.get(contributor["target_id"])
+            if bar is None:
+                continue
+
+            if completed:
+                # Read the dials only when adding a contribution.
+                if metric == "completed":
+                    amount = 1
+
+                elif metric in ("minutes", "hours"):
+                    hours = int(self.hours[task_id].get() or 0)
+                    minutes = int(self.minutes[task_id].get() or 0)
+                    total_minutes = hours * 60 + minutes
+
+                    amount = (
+                        total_minutes / 60
+                        if metric == "hours"
+                        else total_minutes
+                    )
+
+                else:
+                    continue
+
+                bar.update_current(bar.current + amount)
+
+                # Remember exactly what was added.
+                contributor["already_contributed"] = amount
+
+            else:
+                # Remove what was previously added, ignoring the dials.
+                amount = (
+                    1
+                    if metric == "completed"
+                    else contributor["already_contributed"]
+                )
+
+                bar.update_current(bar.current - amount)
+                contributor["already_contributed"] = 0
+                
     def delete_button(self, record, row, subject_frame):
         task_id = record['id']
 
@@ -1474,6 +1593,7 @@ class Tasks(ttk.Frame):
                     task["subject"],
                     task["task"],
                     recurring_id=task["id"],
+                    project_id=task["project_id"],
                 )
 
     def check_for_new_records(self):
@@ -1487,9 +1607,26 @@ class Tasks(ttk.Frame):
                 self.add_task(record)
 
     def task_target_contributors(self, task_record):
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+
+        # Convert the stored YYYY-MM-DD string into a date.
+        task_date = date.fromisoformat(task_record["date"])
+
+        if not monday <= task_date <= sunday:
+            return
+
         task_id = task_record["id"]
         task_subject = task_record["subject"]
         task_project_id = task_record["project_id"]
+        task_completed = task_record["completed"]
+        task_minutes = task_record["minutes"]*task_completed
+        task_hours = task_minutes/60
+
+        already_contributed = {'completed':task_completed, 
+                               'minutes': task_minutes,
+                               'hours': task_hours}
 
         target_records = self.parent.retrieve_active_targets()
 
@@ -1500,6 +1637,7 @@ class Tasks(ttk.Frame):
             target_metric = target_record["metric"]
             target_project_id = target_record["project_id"]
             target_subject = target_record["subject"]
+            target_target = target_record["target"]
 
             # Project target
             if target_project_id is not None:
@@ -1507,7 +1645,8 @@ class Tasks(ttk.Frame):
                     contributors.append({
                         "target_id": target_id,
                         "metric": target_metric,
-                        "already_contributed": 0
+                        "target": target_target, 
+                        "already_contributed": already_contributed[target_metric]
                     })
 
             # Subject target
@@ -1515,10 +1654,13 @@ class Tasks(ttk.Frame):
                 contributors.append({
                     "target_id": target_id,
                     "metric": target_metric,
-                    "already_contributed": 0
+                    "target": target_target, 
+                    "already_contributed": already_contributed[target_metric]
                 })
 
-        self.target_contributors[task_id] = contributors
+        if contributors:
+            self.target_contributors[task_id] = contributors
+        print(self.target_contributors)
             
     def change_date(self, event=None):
         for frame in self.subject_frames.values():
@@ -1785,73 +1927,12 @@ class Schedule(ttk.Frame):
             self,
             style="Card.TFrame",
         )
+        self.task_info_frame.grid(row=1, column=0, sticky="ew")
 
-        self.task_info_frame.grid(
-            row=1,
-            column=0,
-            sticky="ew"
-        )
+        self.attach_to_project = tk.BooleanVar(value=False)
 
-        # Everything inside radio_frame uses pack().
-        self.target_type = tk.StringVar(value="subject")
-
-        radio_frame = ttk.Frame(
-            self.task_info_frame,
-            style="Card.TFrame",
-        )
-        
-        radio_frame.pack(side='left', padx=(0, 6),pady=(0, 5))
-
-        radio_label = ttk.Label(
-            radio_frame,
-            text="Task For",
-            style="Muted.TLabel"
-        )
-        
-        radio_label.pack(anchor="w", pady=(5, 5))
-
-        # Separate frame lets us pack the two
-        # radio buttons next to each other.
-        radio_button_container = ttk.Frame(
-            radio_frame,
-            style="Card.TFrame",
-        )
-
-        radio_button_container.pack(
-            anchor="w"
-        )
-
-        subject_button = ttk.Radiobutton(
-            radio_button_container,
-            text="Subject",
-            variable=self.target_type,
-            # command=self.update_choices,
-            value="subject",
-            cursor="hand2",
-            style="White.TRadiobutton"
-        )
-        
-        subject_button.pack(side="left", padx=(0, 8))
-
-        project_button = ttk.Radiobutton(
-            radio_button_container,
-            text="Project",
-            variable=self.target_type,
-            # command=self.update_choices,
-            value="project",
-            cursor="hand2",
-            style="White.TRadiobutton"
-        )
-        
-        project_button.pack(side="left")
-
-        # Project
-        self.project = EntryField(self.task_info_frame, "Project", "new_task_project_input")
-        self.project.pack(side='left',padx=(0, 6),pady=(0, 5))
-
-        # Task
-        self.task_name = EntryField(self.task_info_frame, "Task", "new_task")
-        self.task_name.pack(side='left',padx=(0, 6),pady=(0, 5))
+        # Initial build.
+        self.build_task_info()
 
         # ==========================================
         # Recurrence Frame
@@ -1933,6 +2014,76 @@ class Schedule(ttk.Frame):
             sticky="w",
             padx=(12, 0)
         )
+
+    def build_task_info(self, subject="", task="", project=""):
+
+        # Recreate the checkbox using the same BooleanVar.
+        self.project_option = ttk.Checkbutton(
+            self.task_info_frame,
+            text="Attach to project",
+            variable=self.attach_to_project,
+            command=self.rebuild_task_info,
+            cursor="hand2",
+        )
+        self.project_option.pack(side="left", padx=(0, 12), pady=(0, 5))
+
+        # Remove the existing widgets, including the checkbox.
+        for widget in self.task_info_frame.winfo_children():
+            if widget is not self.project_option:
+                widget.destroy()
+
+        self.project = None
+
+        # Include the project dropdown only when checked.
+        if self.attach_to_project.get():
+            self.project = DropdownField(
+                self.task_info_frame,
+                "Project",
+                "new_task_project_input",
+                self.parent.projects_list,
+            )
+            self.project.pack(
+                side="left", padx=(0, 6), pady=(0, 5)
+            )
+            self.project.widget.set(
+                project or (self.parent.projects_list[0] if self.parent.projects_list else "")
+            )
+
+        # Subject is always available.
+        self.subject = DropdownField(
+            self.task_info_frame,
+            "Subject",
+            "new_task_subject_input",
+            self.parent.subjects,
+        )
+        self.subject.pack(side="left", padx=(0, 6), pady=(0, 5))
+        self.subject.widget.set(
+            subject or (self.parent.subjects[0] if self.parent.subjects else "")
+        )
+        self.subject.widget.configure(state="normal")
+
+        # Task name is always available.
+        self.task_name = EntryField(
+            self.task_info_frame,
+            "Task",
+            "new_task",
+        )
+        self.task_name.pack(side="left", padx=(0, 6), pady=(0, 5))
+        self.task_name.widget.insert(0, task)
+
+
+    def rebuild_task_info(self):
+        # Preserve the entered values before destroying the widgets.
+        subject = self.subject.get()
+        task = self.task_name.get()
+        project = self.project.get() if self.project is not None else ""
+
+        self.build_task_info(
+            subject=subject,
+            task=task,
+            project=project,
+        )
+
     def clear_calendars(self):
         for widget in self.recurrence_frame.winfo_children():
             if widget is not self.frequency:
@@ -1981,19 +2132,9 @@ class Schedule(ttk.Frame):
 
     def submit_new_record(self):
         try:
-            subject = self.subject.get().strip().lower()
-            task = self.task_name.get().strip().lower()
+            subject = self.subject.get().strip()
+            task = self.task_name.get().strip()
             frequency = self.frequency.get().lower()
-
-            combinations = []
-            for task_info in self.tasks.days_items.values():
-                task_name = task_info['task'].strip().lower()
-                task_subject = task_info['subject'].strip().lower()
-                combinations.append((task_subject, task_name))
-
-            if (subject, task) in combinations and frequency == 'one off':
-                self.error_text.set("That's already scheduled.")
-                return
 
             if not task:
                 self.error_text.set("Please enter a task name.")
@@ -2003,29 +2144,54 @@ class Schedule(ttk.Frame):
                 self.error_text.set("Please choose a subject.")
                 return
 
+            # Look up the selected project only when attaching to one.
+            project_id = None
+
+            if self.attach_to_project.get():
+                project_name = self.project.get().strip()
+                project_id = self.parent.project_lookup.get(project_name)
+
+            combinations = []
+
+            for task_info in self.tasks.days_items.values():
+                task_name = task_info["task"].strip().lower()
+                task_subject = task_info["subject"].strip().lower()
+                combinations.append((task_subject, task_name))
+
+            if (
+                (subject.lower(), task.lower()) in combinations
+                and frequency == "one off"
+            ):
+                self.error_text.set("That's already scheduled.")
+                return
+
             if frequency == "one off":
                 self.parent.insert_record(
                     self.one_off.get(),
-                    self.subject.get().strip(),
-                    self.task_name.get().strip()
+                    subject,
+                    task,
+                    project_id=project_id,
                 )
-                return
 
-            if self.day_choice is not None:
-                day = self.day_choice.get()
             else:
-                day = None
+                day = (
+                    self.day_choice.get()
+                    if self.day_choice is not None
+                    else None
+                )
 
-            self.parent.insert_recurring_task(
-                self.subject.get().strip(),
-                self.tasks.get().strip(),
-                frequency,
-                day=day
-            )
+                self.parent.insert_recurring_task(
+                    subject,
+                    task,
+                    frequency,
+                    day=day,
+                    project_id=project_id,
+                )
 
+            # Clear the inputs after either kind of successful insert.
             self.error_text.set("")
-            self.subject.delete(0, tk.END)
-            self.task_name.delete(0, tk.END)
+            self.subject.widget.set("")
+            self.task_name.widget.delete(0, tk.END)
 
         finally:
             self.tasks.check_for_new_records()
@@ -3075,6 +3241,7 @@ class MetricBar(ttk.Frame):
         self.current = current
         self.metric = metric
         self.target = target
+        self.text = text
 
         # Card heading
         ttk.Label(
@@ -3099,6 +3266,13 @@ class MetricBar(ttk.Frame):
         )
         
         self.label.pack(anchor="w")
+
+    def update_current(self, current):
+        self.current = current
+        self.bar.configure(value=current)
+        self.label.configure(
+            text=f"{current} / {self.target} {self.text}"
+    )
 
 class CalendarField(ttk.Frame):
     def __init__(self, parent, label_text, tracking_key, **kwargs):
@@ -3440,7 +3614,7 @@ class ProjectCard(ttk.LabelFrame):
             ttk.Checkbutton(
                 self.milestone_frame,
                 variable=self.root.milestones[milestone_id],
-                command=self.update_progress,
+                command=lambda milestone_id=milestone_id: self.update_progress(milestone_id),
                 cursor="hand2",
             ).grid(row=row, column=0, sticky="nw", pady=5)
 
@@ -3465,20 +3639,23 @@ class ProjectCard(ttk.LabelFrame):
                     wraplength=max(50, event.width - 40)
                 )
 
-    def update_progress(self):
-        total = len(self.root.milestones)
+    def update_progress(self, milestone_id):
+        total = len(self.root.milestone_record_lookup[self.project_id])
 
-        completed = sum(variable.get() for variable in self.root.milestones.values())
+        milestone_ids = [row["id"] for row in self.root.milestone_record_lookup[self.project_id]]
 
-        self.progress["value"] = (completed / total * 100 if total else 0)
+        completed = sum(variable.get() for key, variable in self.root.milestones.items() if key in milestone_ids)
 
-        self.progress_text["text"] = (f"{completed} / {total} milestones completed")
+        self.progress["value"] = completed / total * 100 if total else 0
 
-        self.complete_button["state"] = ("normal" if total and completed == total else "disabled")
+        self.progress_text["text"] = f"{completed} / {total} milestones completed"
+        
+        self.complete_button["state"] = "normal" if total and completed == total else "disabled" 
 
-#####################
-# Custom Widgets
-#####################
+        # Save only the milestone whose checkbox changed.
+        with self.root.conn:
+            self.root.conn.execute("UPDATE milestones SET completed = ? WHERE id = ?",
+                (int(self.root.milestones[milestone_id].get()),milestone_id,),)
 
 class EntryPopup(ttk.Entry):
     def __init__(self, parent, iid, column, text, **kw):
