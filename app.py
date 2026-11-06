@@ -1723,7 +1723,6 @@ class Timer(ttk.Frame):
 
         self.make_widgets()
 
-
     def make_widgets(self):
 
         # Allow center section to expand
@@ -1847,7 +1846,6 @@ class Timer(ttk.Frame):
             self.timer
         )
 
-
     def start(self):
         if self.after_job is not None:
             return
@@ -1858,7 +1856,6 @@ class Timer(ttk.Frame):
             self.start_time -= self.current_elapsed
 
         self.timer()
-
 
     def stop(self):
         if self.after_job is None:
@@ -2208,29 +2205,297 @@ class Visuals(ttk.Frame):
         self.canvas = None
         self.fig = None
 
-        self.header_frame = ttk.Frame(self)
-        self.header_frame.grid(row=0, column=0, sticky='ew')
+        # ==========================================
+        # Header
+        # ==========================================
 
-        date_choice_label = ttk.Label(
+        self.header_frame = ttk.Frame(
+            self,
+            style="Card.TFrame"
+        )
+
+        self.header_frame.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=10,
+            pady=10
+        )
+
+        # ==========================================
+        # Default Date Range
+        # ==========================================
+
+        default_date_frame = ttk.Frame(
             self.header_frame,
+            style="Card.TFrame"
+        )
+
+        default_date_frame.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 15)
+        )
+
+        ttk.Label(
+            default_date_frame,
             text="Choose Date Range",
-            style="Heading.TLabel",
+            style="Heading.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(0, 5)
         )
-        date_choice_label.grid(row=0, column=0)
 
-        self.date_option = tk.StringVar(value="Last Week")
-        self.date_dropdown = ttk.Combobox(
-            self.header_frame,
-            textvariable=self.date_option,
-            values=["Last Week", "Last Month", "Last Year"],
-            state="readonly"
+        self.date_option = tk.StringVar(
+            value="Last Week"
         )
-        self.date_dropdown.grid(row=1, column=0, padx=5)
+
+        self.date_dropdown = ttk.Combobox(
+            default_date_frame,
+            textvariable=self.date_option,
+            values=[
+                "Last Week",
+                "Last Month",
+                "Last Year"
+            ],
+            state="readonly",
+            width=16
+        )
+
+        self.date_dropdown.pack(
+            anchor="w"
+        )
+
+        # ==========================================
+        # Separator
+        # ==========================================
+
+        ttk.Separator(
+            self.header_frame,
+            orient="vertical"
+        ).pack(
+            side="left",
+            fill="y",
+            padx=15,
+            pady=5
+        )
+
+        # ==========================================
+        # Custom Date Range
+        # ==========================================
+
+        custom_date_frame = ttk.Frame(
+            self.header_frame,
+            style="Card.TFrame"
+        )
+
+        custom_date_frame.pack(
+            side="left",
+            anchor="n"
+        )
+
+        ttk.Label(
+            custom_date_frame,
+            text="Custom Date Range",
+            style="Heading.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(0, 5)
+        )
+
+        # Start / End date container
+        custom_dates = ttk.Frame(
+            custom_date_frame,
+            style="Card.TFrame"
+        )
+
+        custom_dates.pack(
+            anchor="w"
+        )
+
+        self.custom_start = CalendarField(
+            custom_dates,
+            "Start Date",
+            "visuals_start_date"
+        )
+
+        self.custom_start.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 8)
+        )
+
+        self.custom_end = CalendarField(
+            custom_dates,
+            "End Date",
+            "visuals_end_date"
+        )
+
+        self.custom_end.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 8)
+        )
+
+        self.apply_custom_dates = ttk.Button(
+            custom_dates,
+            text="Apply",
+            # command=self.apply_filters,
+            style="Small.Accent.TButton",
+            cursor="hand2"
+        )
+
+        self.apply_custom_dates.pack(
+            side="left",
+            anchor="s",
+            padx=(4, 0)
+        )
+
+        # ==========================================
+        # Separator
+        # ==========================================
+
+        ttk.Separator(
+            self.header_frame,
+            orient="vertical"
+        ).pack(
+            side="left",
+            fill="y",
+            padx=15,
+            pady=5
+        )
+
+        # ==========================================
+        # Filters
+        # ==========================================
+
+        filter_frame = ttk.Frame(
+            self.header_frame,
+            style="Card.TFrame"
+        )
+
+        filter_frame.pack(
+            side="left",
+            anchor="n"
+        )
+
+        ttk.Label(
+            filter_frame,
+            text="Filter Your Data",
+            style="Heading.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(0, 5)
+        )
+
+        # Container for Subject + Project controls
+        filter_options_frame = ttk.Frame(
+            filter_frame,
+            style="Card.TFrame"
+        )
+
+        filter_options_frame.pack(
+            anchor="w"
+        )
+
+        # ==========================================
+        # Subject Filter
+        # ==========================================
+
+        subject_frame = ttk.Frame(
+            filter_options_frame,
+            style="Card.TFrame"
+        )
+
+        subject_frame.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 10)
+        )
+
+        ttk.Label(
+            subject_frame,
+            text="Subjects",
+            style="Muted.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(5, 5)
+        )
+
+        self.subject_options = [
+            "French",
+            "Python",
+            "SQL"
+        ]
+
+        self.subject_vars = {
+            subject: tk.BooleanVar(value=True)
+            for subject in self.subject_options
+        }
+
+        self.subject_button = ttk.Menubutton(
+            subject_frame,
+            text="All Subjects"
+        )
+
+        self.subject_menu = tk.Menu(
+            self.subject_button,
+            tearoff=False
+        )
+
+        self.subject_button["menu"] = self.subject_menu
+
+        for subject in self.subject_options:
+            self.subject_menu.add_checkbutton(
+                label=subject,
+                variable=self.subject_vars[subject],
+                # command=self.update_subject_selection
+            )
+
+        self.subject_button.pack(
+            anchor="w"
+        )
+
+        # ==========================================
+        # Project Filter
+        # ==========================================
+
+        self.project_filter = DropdownField(
+            filter_options_frame,
+            "Project",
+            "visuals_project",
+            [
+                "All Projects",
+                "Study Tracker App",
+                "Python Course",
+                "Finance Certification"
+            ]
+        )
+
+        self.project_filter.widget.set(
+            "All Projects"
+        )
+
+        self.project_filter.pack(
+            side="left",
+            anchor="n"
+        )
+
+        # ==========================================
+        # Bind Default Date Range
+        # ==========================================
+
+        self.date_dropdown.bind(
+            "<<ComboboxSelected>>",
+            lambda event: self.update_tabs()
+        )
 
         self.date_dropdown.bind(
             "<<ComboboxSelected>>",
             lambda x: self.update_tabs()
         )
+
+        self.update_tabs()
 
     def update_tabs(self):
         self.parent.get_start_and_end_dates(self.date_option.get())
@@ -2377,29 +2642,146 @@ class Analytics(ttk.Frame):
 
         self.header_frame = ttk.Frame(
             self,
-            style="Card.TFrame",
+            style="Card.TFrame"
         )
+
         self.header_frame.grid(
-            row=0, column=0, sticky="ew", padx=10, pady=10
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=10,
+            pady=10
+        )
+
+        # ==========================================
+        # Default Date Range
+        # ==========================================
+
+        default_date_frame = ttk.Frame(
+            self.header_frame,
+            style="Card.TFrame"
+        )
+
+        default_date_frame.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 15)
         )
 
         ttk.Label(
-            self.header_frame,
+            default_date_frame,
             text="Choose Date Range",
-            style="Heading.TLabel",
-        ).grid(row=0, column=0, sticky="w")
+            style="Heading.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(0, 5)
+        )
 
-        self.date_option = tk.StringVar(value="Last Week")
+        self.date_option = tk.StringVar(
+            value="Last Week"
+        )
 
         self.date_dropdown = ttk.Combobox(
-            self.header_frame,
+            default_date_frame,
             textvariable=self.date_option,
-            values=["Last Week", "Last Month", "Last Year"],
+            values=[
+                "Last Week",
+                "Last Month",
+                "Last Year"
+            ],
             state="readonly",
+            width=16
         )
-        self.date_dropdown.grid(
-            row=1, column=0, sticky="w", pady=(5, 0)
+
+        self.date_dropdown.pack(
+            anchor="w"
         )
+
+        # ==========================================
+        # Separator
+        # ==========================================
+
+        ttk.Separator(
+            self.header_frame,
+            orient="vertical"
+        ).pack(
+            side="left",
+            fill="y",
+            padx=15,
+            pady=5
+        )
+
+        # ==========================================
+        # Custom Date Range
+        # ==========================================
+
+        custom_date_frame = ttk.Frame(
+            self.header_frame,
+            style="Card.TFrame"
+        )
+
+        custom_date_frame.pack(
+            side="left",
+            anchor="n"
+        )
+
+        ttk.Label(
+            custom_date_frame,
+            text="Custom Date Range",
+            style="Heading.TLabel"
+        ).pack(
+            anchor="w",
+            pady=(0, 5)
+        )
+
+        # Start / End date container
+        custom_dates = ttk.Frame(
+            custom_date_frame,
+            style="Card.TFrame"
+        )
+
+        custom_dates.pack(
+            anchor="w"
+        )
+
+        self.custom_start = CalendarField(
+            custom_dates,
+            "Start Date",
+            "visuals_start_date"
+        )
+
+        self.custom_start.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 8)
+        )
+
+        self.custom_end = CalendarField(
+            custom_dates,
+            "End Date",
+            "visuals_end_date"
+        )
+
+        self.custom_end.pack(
+            side="left",
+            anchor="n",
+            padx=(0, 8)
+        )
+
+        self.apply_custom_dates = ttk.Button(
+            custom_dates,
+            text="Apply",
+            # command=self.apply_filters,
+            style="Small.Accent.TButton",
+            cursor="hand2"
+        )
+
+        self.apply_custom_dates.pack(
+            side="left",
+            anchor="s",
+            padx=(4, 0)
+        )
+
         self.date_dropdown.bind(
             "<<ComboboxSelected>>",
             lambda event: self.update_tabs(),
@@ -3614,7 +3996,7 @@ class ProjectCard(ttk.LabelFrame):
             ttk.Checkbutton(
                 self.milestone_frame,
                 variable=self.root.milestones[milestone_id],
-                command=lambda milestone_id=milestone_id: self.update_progress(milestone_id),
+                command=lambda milestone_id=milestone_id: self.update_progress(milestone_id=milestone_id),
                 cursor="hand2",
             ).grid(row=row, column=0, sticky="nw", pady=5)
 
@@ -3639,7 +4021,7 @@ class ProjectCard(ttk.LabelFrame):
                     wraplength=max(50, event.width - 40)
                 )
 
-    def update_progress(self, milestone_id):
+    def update_progress(self, milestone_id=None):
         total = len(self.root.milestone_record_lookup[self.project_id])
 
         milestone_ids = [row["id"] for row in self.root.milestone_record_lookup[self.project_id]]
@@ -3653,9 +4035,10 @@ class ProjectCard(ttk.LabelFrame):
         self.complete_button["state"] = "normal" if total and completed == total else "disabled" 
 
         # Save only the milestone whose checkbox changed.
-        with self.root.conn:
-            self.root.conn.execute("UPDATE milestones SET completed = ? WHERE id = ?",
-                (int(self.root.milestones[milestone_id].get()),milestone_id,),)
+        if milestone_id is not None:
+            with self.root.conn:
+                self.root.conn.execute("UPDATE milestones SET completed = ? WHERE id = ?",
+                    (int(self.root.milestones[milestone_id].get()),milestone_id,),)
 
 class EntryPopup(ttk.Entry):
     def __init__(self, parent, iid, column, text, **kw):
@@ -3672,7 +4055,6 @@ class EntryPopup(ttk.Entry):
         self.bind("<Return>", self.on_return) # Enter key bind
         self.bind("<Control-a>", self.select_all) # CTRL + A key bind
         self.bind("<Escape>", lambda *ignore: self.destroy()) # ESC key bind
-
 
         self.column_name = parent.names[column]
         self.dataset = parent.dataset
