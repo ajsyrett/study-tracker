@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinter import font as tkfont
 import sqlite3
 from datetime import datetime, timedelta, date
 from collections import defaultdict
@@ -10,6 +11,8 @@ from tkcalendar import DateEntry
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+import matplotlib.dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # Appearance only: configured once when the app opens.
@@ -314,6 +317,7 @@ class Application(tk.Tk):
         self.today = datetime.today().strftime("%Y-%m-%d")
         self.title("Study Tracker")
         self.geometry("1080x650")
+        self.bind("<Configure>", self.report_window_size, add="+")
         self.load_data()
         self.get_targets()
 
@@ -472,6 +476,18 @@ class Application(tk.Tk):
         )
 
         self.first_run = False
+
+    def report_window_size(self, event):
+        # Ignore resize events from child widgets.
+        if event.widget is not self:
+            return
+
+        size = (event.width, event.height)
+
+        # Only print when the window's dimensions change.
+        if size != getattr(self, "_last_window_size", None):
+            self._last_window_size = size
+            print("Window size:", size)
 
     def load_data(self):
         rows = self.conn.execute("SELECT * FROM sessions").fetchall()
@@ -2202,6 +2218,10 @@ class Visuals(ttk.Frame):
         self.df = df
         self.today = datetime.today()
 
+        self.projects = self.parent.projects_list
+        self.project_ids = self.parent.project_ids
+        self.project_lookup = dict(zip(self.projects, self.project_ids))
+
         self.canvas = None
         self.fig = None
 
@@ -2340,7 +2360,7 @@ class Visuals(ttk.Frame):
         self.apply_custom_dates = ttk.Button(
             custom_dates,
             text="Apply",
-            # command=self.apply_filters,
+            command=lambda: self.update_tabs(custom=True),
             style="Small.Accent.TButton",
             cursor="hand2"
         )
@@ -2422,11 +2442,7 @@ class Visuals(ttk.Frame):
             pady=(5, 5)
         )
 
-        self.subject_options = [
-            "French",
-            "Python",
-            "SQL"
-        ]
+        self.subject_options = self.parent.subjects
 
         self.subject_vars = {
             subject: tk.BooleanVar(value=True)
@@ -2449,7 +2465,7 @@ class Visuals(ttk.Frame):
             self.subject_menu.add_checkbutton(
                 label=subject,
                 variable=self.subject_vars[subject],
-                # command=self.update_subject_selection
+                command=self.update_tabs
             )
 
         self.subject_button.pack(
@@ -2464,21 +2480,19 @@ class Visuals(ttk.Frame):
             filter_options_frame,
             "Project",
             "visuals_project",
-            [
-                "All Projects",
-                "Study Tracker App",
-                "Python Course",
-                "Finance Certification"
-            ]
+            ["All Projects", *self.projects],
         )
 
-        self.project_filter.widget.set(
-            "All Projects"
-        )
+        self.project_filter.widget.set("All Projects")
 
         self.project_filter.pack(
             side="left",
-            anchor="n"
+            anchor="n",
+        )
+
+        self.project_filter.widget.bind(
+            "<<ComboboxSelected>>",
+            lambda event: self.update_tabs(),
         )
 
         # ==========================================
@@ -2497,10 +2511,17 @@ class Visuals(ttk.Frame):
 
         self.update_tabs()
 
-    def update_tabs(self):
-        self.parent.get_start_and_end_dates(self.date_option.get())
-        self.parent.filter_dates(self.parent.start, self.parent.end)
-        self.plot_study((self.parent.start, self.parent.end))
+    def update_tabs(self, custom=False):
+        if custom:
+            start = self.custom_start.widget.get_date()
+            end = self.custom_end.widget.get_date()
+        else:
+            self.parent.get_start_and_end_dates(self.date_option.get())
+            start = self.parent.start
+            end = self.parent.end
+
+        self.parent.filter_dates(start, end)
+        self.plot_study((start, end))
 
     def filter_and_group(self, data, dates, freq='daily'):
         start, end = map(pd.Timestamp, dates)
@@ -2508,7 +2529,11 @@ class Visuals(ttk.Frame):
         data = data.copy()
         data['date'] = pd.to_datetime(data['date']).dt.normalize()
 
-        frequency = {'daily': 'D', 'weekly': 'W'}[freq]
+        frequency = {
+            'daily': 'D',
+            'weekly': 'W',
+            'monthly': 'MS',
+        }[freq]
 
         return (
             data.loc[data['date'].between(start, end)]
@@ -2521,22 +2546,28 @@ class Visuals(ttk.Frame):
                 .sort_values('date')
         )
 
-    def clean_data(self, data, dates, freq='daily', subject=None):
+    def clean_data(self, data, dates, freq='daily'):
         start, end = map(pd.Timestamp, dates)
 
         offset = {
             'daily': pd.offsets.Day(),
             'weekly': pd.offsets.Week(weekday=6),
+            'monthly': pd.offsets.MonthBegin(),
         }[freq]
 
+        # Monthly groups are labeled with the first day of the month.
+        if freq == 'monthly':
+            first = offset.rollback(start)
+            last = offset.rollback(end)
+        else:
+            first = offset.rollforward(start)
+            last = offset.rollforward(end)
+
         period_dates = pd.date_range(
-            offset.rollforward(start),
-            offset.rollforward(end),
+            first,
+            last,
             freq=offset,
         )
-
-        if subject is not None:
-            data = data.loc[data['subject'].eq(subject)]
 
         return (
             data.groupby('date')['minutes']
@@ -2549,10 +2580,16 @@ class Visuals(ttk.Frame):
         start, end = [pd.Timestamp(date).normalize() for date in dates]
         dates = (start, end)
 
-        if end <= start + pd.DateOffset(months=1):
+        # Daily through 8 weeks.
+        if end <= start + pd.DateOffset(weeks=8):
             freq = 'daily'
             plot_dates = pd.date_range(start, end, freq='D')
-        else:
+
+            # Inclusive range: 7 dates or fewer.
+            date_format = '%a' if len(plot_dates) <= 7 else '%b %d'
+
+        # Weekly after 8 weeks, up to but not including 6 months.
+        elif end < start + pd.DateOffset(months=6):
             freq = 'weekly'
             sunday = pd.offsets.Week(weekday=6)
             plot_dates = pd.date_range(
@@ -2561,9 +2598,25 @@ class Visuals(ttk.Frame):
                 freq='W',
             )
 
-        subjects = self.df['subject'].dropna().unique().tolist()
+        # Monthly at 6 months or longer.
+        else:
+            freq = 'monthly'
+            month_start = pd.offsets.MonthBegin()
+            plot_dates = pd.date_range(
+                month_start.rollback(start),
+                month_start.rollback(end),
+                freq='MS',
+            )
+
+        subjects = [subject for subject, variable in self.subject_vars.items() if variable.get()]
 
         selected = self.df.loc[self.df['subject'].isin(subjects)]
+        project_choice = self.project_filter.widget.get()
+
+        if project_choice != "All Projects":
+            project_id = self.project_lookup[project_choice]
+            selected = selected.loc[selected['project_id'] == project_id]
+
         grouped = self.filter_and_group(selected, dates, freq)
 
         # Remove the previous chart.
@@ -2571,7 +2624,8 @@ class Visuals(ttk.Frame):
             self.canvas.get_tk_widget().destroy()
             plt.close(self.fig)
 
-        self.fig, ax = plt.subplots(figsize=(8, 5))
+        self.fig = Figure(figsize=(8, 5), dpi=100)
+        ax = self.fig.add_subplot(111)
         ax.set_facecolor(UI_COLORS["surface"])
         ax.grid(axis="y")
         ax.tick_params(axis="both", length=0, pad=7)
@@ -2581,36 +2635,50 @@ class Visuals(ttk.Frame):
 
         plot_subjects = [None] if total else subjects
 
+        monthly_values = []
+        monthly_labels = []
+        monthly_colors = []
+
         for i, subject in enumerate(plot_subjects):
             minutes = np.array(
-                self.clean_data(grouped, dates, freq, subject)
+                self.clean_data(grouped, dates, freq)
             )
             label = 'Total' if total else subject
             color = UI_COLORS["accent"] if total else colors[i]
 
-            if freq == 'daily':
+            if freq in ('daily', 'weekly'):
                 ax.bar(
                     plot_dates,
                     minutes,
                     bottom=bottom,
+                    width=0.8 if freq == 'daily' else 5.6,
                     label=label,
                     color=color,
                 )
                 bottom += minutes
+
             else:
-                ax.plot(
-                    plot_dates,
-                    minutes,
-                    label=label,
-                    color=color,
-                    marker='o', markersize=4, linewidth=2,
-                )
+                # Collect each subject for the monthly stacked plot.
+                monthly_values.append(minutes)
+                monthly_labels.append(label)
+                monthly_colors.append(color)
+
+        # Stack all subjects together in one call.
+        if freq == 'monthly' and monthly_values:
+            ax.stackplot(
+                plot_dates,
+                *monthly_values,
+                labels=monthly_labels,
+                colors=monthly_colors,
+                alpha=0.85,
+            )
 
         ax.set_ylabel('Minutes')
         ax.set_title(
             f"{'Daily' if freq == 'daily' else 'Weekly'} Study Time",
             loc="left", pad=16
         )
+        ax.xaxis.set_major_formatter(mdates.DateFormatter(date_format))
 
         if plot_subjects:
             ax.legend(frameon=False, fontsize=9)
@@ -2771,7 +2839,7 @@ class Analytics(ttk.Frame):
         self.apply_custom_dates = ttk.Button(
             custom_dates,
             text="Apply",
-            # command=self.apply_filters,
+            command=lambda: self.update_tabs(custom=True),
             style="Small.Accent.TButton",
             cursor="hand2"
         )
@@ -2833,7 +2901,7 @@ class Analytics(ttk.Frame):
         # Create the cards once and retain their instances
         self.cards = []
 
-        for i in range(6):
+        for i in range(9):
             row, column = divmod(i, 3)
 
             card = StatCard(
@@ -2841,11 +2909,11 @@ class Analytics(ttk.Frame):
                 title="",
                 value="",
             )
-            sticky = "new" if row==1 else "sew"
+            # sticky = "new" if row==1 else "sew"
             card.grid(
                 row=row,
                 column=column,
-                sticky=sticky,
+                sticky="nsew",
                 padx=8,
                 pady=8,
             )
@@ -2865,9 +2933,26 @@ class Analytics(ttk.Frame):
 
         self.update_tabs()
 
-    def update_tabs(self):
-        self.parent.get_start_and_end_dates(self.date_option.get())
-        self.parent.filter_dates(self.parent.start, self.parent.end)
+    def update_tabs(self, custom=False):
+
+        if custom:
+            start = self.custom_start.widget.get_date()
+            end = self.custom_end.widget.get_date()
+        else:
+            self.parent.get_start_and_end_dates(self.date_option.get())
+            start = self.parent.start
+            end = self.parent.end
+
+        self.parent.filter_dates(start, end)
+
+        # Update the denominator used by the Study Days card.
+        self.parent.period_days = (
+            pd.Timestamp(end) - pd.Timestamp(start)
+        ).days + 1
+
+        self.start = pd.Timestamp(start).normalize()
+        self.end = pd.Timestamp(end).normalize()
+
         self.update_cards()
         self.update_subject_tree()
 
@@ -2876,9 +2961,12 @@ class Analytics(ttk.Frame):
             self.get_total_study_time(),
             self.tasks_completed(),
             self.study_days(),
+            self.average_study_day(),
+            self.longest_study_streak(),
             self.most_studied(),
             self.most_consistent(),
-            self.most_skipped(),
+            self.milestones_completed(),
+            self.projects_completed(),
         ]
 
         for card, (title, value, subtitle) in zip(
@@ -3028,6 +3116,92 @@ class Analytics(ttk.Frame):
             subject,
             f"Skipped {int(result['skipped'])} "
             f"of {int(result['total_tasks'])} past tasks",
+        )
+
+    def average_study_day(self):
+        # Average only across days with study time recorded.
+        data = self.parent.df_filt
+        study_dates = pd.to_datetime(
+            data.loc[data['minutes'] > 0, 'date']
+        ).dt.normalize()
+
+        days = study_dates.nunique()
+        total_minutes = data['minutes'].sum()
+        average = total_minutes / days if days else 0
+
+        return (
+            "Average study day",
+            self.format_minutes(average),
+            "Per day with time recorded",
+        )
+
+
+    def longest_study_streak(self):
+        # Count consecutive study dates within the selected range.
+        data = self.parent.df_filt
+        dates = (
+            pd.to_datetime(data.loc[data['minutes'] > 0, 'date'])
+            .dt.normalize()
+            .drop_duplicates()
+            .sort_values()
+        )
+
+        longest = 0
+        current = 0
+        previous = None
+
+        for date in dates:
+            if previous is not None and date - previous == pd.Timedelta(days=1):
+                current += 1
+            else:
+                current = 1
+
+            longest = max(longest, current)
+            previous = date
+
+        return (
+            "Longest study streak",
+            f"{longest} {'day' if longest == 1 else 'days'}",
+            "Consecutive days in selected range",
+        )
+
+
+    def milestones_completed(self):
+        data = self.parent.data_lookup['milestones']
+
+        # Normalize timestamps so the entire end date is included.
+        completion_dates = pd.to_datetime(
+            data['end_date'], errors='coerce'
+        ).dt.normalize()
+
+        count = (
+            (data['completed'] == 1)
+            & completion_dates.between(self.start, self.end)
+        ).sum()
+
+        return (
+            "Milestones completed",
+            str(int(count)),
+            "Completed in selected range",
+        )
+
+
+    def projects_completed(self):
+        data = self.parent.data_lookup['projects']
+
+        completion_dates = pd.to_datetime(
+            data['end_date'], errors='coerce'
+        ).dt.normalize()
+
+        count = (
+            (data['completed'] == 1)
+            & completion_dates.between(self.start, self.end)
+        ).sum()
+
+        return (
+            "Projects completed",
+            str(int(count)),
+            "Completed in selected range",
         )
 
 class TaskManager(ttk.Frame):
@@ -3291,42 +3465,92 @@ class ProjectPage(ttk.Frame):
 class StatCard(ttk.Frame):
 
     def __init__(self, parent, title, value, subtitle=None):
-        super().__init__(parent, padding=18, style="StatCard.TFrame")
+        # Dedicated styles keep the blue background on every layer.
+        style = ttk.Style(parent)
+        family = tkfont.nametofont("TkDefaultFont").actual("family")
+        background = UI_COLORS["accent"]
+
+        style.configure(
+            "BlueStat.TFrame",
+            background=background,
+            borderwidth=0,
+            relief="flat",
+        )
+        style.configure(
+            "BlueStatTitle.TLabel",
+            background=background,
+            foreground="white",
+            font=(family, 9, "bold"),
+        )
+        style.configure(
+            "BlueStatValue.TLabel",
+            background=background,
+            foreground="white",
+            font=(family, 18, "bold"),
+        )
+        style.configure(
+            "BlueStatSubtitle.TLabel",
+            background=background,
+            foreground="white",
+            font=(family, 9),
+        )
+
+        super().__init__(
+            parent,
+            padding=10,
+            style="BlueStat.TFrame",
+        )
 
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
 
-        # No sticky: the content stays centered inside this cell.
-        self.content = ttk.Frame(self, style="Card.TFrame")
-        self.content.grid(row=0, column=0)
+        # Stretch horizontally while keeping content centered vertically.
+        self.content = ttk.Frame(self, style="BlueStat.TFrame")
+        self.content.grid(row=0, column=0, sticky="ew")
 
         self.title_label = ttk.Label(
             self.content,
             text=title.upper(),
-            style="Muted.TLabel",
+            style="BlueStatTitle.TLabel",
             anchor="center",
             justify="center",
+            wraplength=140,
         )
         self.title_label.pack(fill="x")
 
         self.value_label = ttk.Label(
             self.content,
             text=value,
-            style="Metric.TLabel",
+            style="BlueStatValue.TLabel",
             anchor="center",
             justify="center",
+            wraplength=140,
         )
-        self.value_label.pack(fill="x", pady=(8, 0))
+        self.value_label.pack(fill="x", pady=(5, 0))
 
         self.subtitle_label = ttk.Label(
             self.content,
             text=subtitle or "",
-            style="Muted.TLabel",
+            style="BlueStatSubtitle.TLabel",
             anchor="center",
             justify="center",
+            wraplength=140,
         )
         if subtitle:
-            self.subtitle_label.pack(fill="x")
+            self.subtitle_label.pack(fill="x", pady=(4, 0))
+
+        # Adjust wrapping whenever the card changes size.
+        # self.bind("<Configure>", self.update_wrap)
+
+    def update_wrap(self, event):
+        available_width = max(1, event.width - 24)
+
+        for label in (
+            self.title_label,
+            self.value_label,
+            self.subtitle_label,
+        ):
+            label.configure(wraplength=available_width)
 
     def set_title(self, title):
         self.title_label.configure(text=title.upper())
@@ -3338,7 +3562,7 @@ class StatCard(ttk.Frame):
         self.subtitle_label.configure(text=subtitle or "")
 
         if subtitle:
-            self.subtitle_label.pack(fill="x")
+            self.subtitle_label.pack(fill="x", pady=(4, 0))
         else:
             self.subtitle_label.pack_forget()
 
