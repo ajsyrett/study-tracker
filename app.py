@@ -451,10 +451,7 @@ class Application(tk.Tk):
             text="Projects",
         )
 
-        self.visuals_tab = Visuals(
-            self.notebook,
-            self,
-        )
+        self.visuals_tab = Visuals(self.notebook,self,)
 
         self.analytics_tab = Analytics(self.notebook, self)
         self.notebook.add(
@@ -494,6 +491,7 @@ class Application(tk.Tk):
         # Update both tabs directly.
         self.visuals_tab.update_tabs()
         self.analytics_tab.update_tabs()
+        self.timer.update_options()
 
     def report_window_size(self, event):
         # Ignore resize events from child widgets.
@@ -769,8 +767,9 @@ class Application(tk.Tk):
             """
         ).fetchall()
 
-    def retrieve_recurring_tasks(self):
-        day = datetime.today().strftime("%A")
+    def retrieve_recurring_tasks(self, date):
+        # Get the weekday for the selected date.
+        day = datetime.strptime(date, "%Y-%m-%d").strftime("%A")
 
         return self.conn.execute(
             """
@@ -780,25 +779,22 @@ class Application(tk.Tk):
                 frequency = 'daily'
                 OR (frequency = 'weekly' AND day = ?)
             )
-            AND start_date <= date('now', 'localtime')
+            AND (
+                start_date IS NULL
+                OR start_date <= ?
+            )
             AND (
                 end_date IS NULL
-                OR end_date >= date('now', 'localtime')
+                OR end_date >= ?
             )
             AND id NOT IN (
                 SELECT recurring_id
                 FROM sessions
-                WHERE date = date('now', 'localtime')
+                WHERE date = ?
                 AND recurring_id IS NOT NULL
             )
-            AND id NOT IN (
-                SELECT recurring_id
-                FROM sessions
-                WHERE date = date('now', 'localtime')
-                AND canceled = 1
-            )
             """,
-            (day,),
+            (day, date, date, date),
         ).fetchall()
 
     def insert_record(
@@ -830,17 +826,17 @@ class Application(tk.Tk):
         self.refresh_data()
 
     def insert_recurring_task(
-        self, subject, task, frequency, day=None, project_id=None
+        self, subject, task, frequency, day=None, start_date=None, end_date=None, project_id=None
     ):
         with self.conn:
             cursor = self.conn.execute(
                 """
                 INSERT INTO recurring_tasks (
-                    subject, task, frequency, day, project_id
+                    subject, task, frequency, day, start_date, end_date, project_id
                 )
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (subject, task, frequency, day, project_id),
+                (subject, task, frequency, day, start_date, end_date, project_id),
             )
 
         new_id = cursor.lastrowid
@@ -922,7 +918,6 @@ class Application(tk.Tk):
             )
 
         self.refresh_data()
-
 
     def complete_project_record(self, project_id):
         end_date = datetime.now().strftime("%Y-%m-%d")
@@ -1619,7 +1614,7 @@ class Tasks(ttk.Frame):
             subject_frame.destroy()
             del self.subject_frames[subject]
 
-        self.parent.timer.get_stop_watch_options()
+        self.parent.timer.update_options()
 
     def task_time_to_complete(self, record, row, subject_frame):
         task_id = record["id"]
@@ -1677,20 +1672,21 @@ class Tasks(ttk.Frame):
         self.row_widgets[task_id].append(time_frame)
 
     def register_todays_recurring_items(self, date):
-        days_recurring_tasks = self.parent.retrieve_recurring_tasks()
+        days_recurring_tasks = self.parent.retrieve_recurring_tasks(date)
 
-        today_tasks = []
-        for task_info in self.days_items.values():
-            task_name = task_info['task'].strip().lower()
-            task_subject = task_info['subject'].strip().lower()
-            today_tasks.append((task_subject, task_name))
+        # Read existing tasks for the selected date.
+        existing_tasks = {
+            (task["subject"].strip().lower(), task["task"].strip().lower())
+            for task in self.parent.retrieve_records(date)
+        }
 
         for task in days_recurring_tasks:
-            recurring_task_name = task["task"].strip().lower()
-            recurring_task_subject = task["subject"].strip().lower()
-            recurring_task_id = task["id"]
+            task_key = (
+                task["subject"].strip().lower(),
+                task["task"].strip().lower(),
+            )
 
-            if (recurring_task_subject, recurring_task_name) not in today_tasks:
+            if task_key not in existing_tasks:
                 self.parent.insert_record(
                     date,
                     task["subject"],
@@ -1698,6 +1694,8 @@ class Tasks(ttk.Frame):
                     recurring_id=task["id"],
                     project_id=task["project_id"],
                 )
+
+                existing_tasks.add(task_key)
 
     def check_for_new_records(self):
         # Remove the previous empty-state label.
@@ -1828,6 +1826,8 @@ class Timer(ttk.Frame):
             values=self.task_names,
         )
 
+        self.task_choice.set(self.task_names[0] if self.task_names else "")
+
         self.task_dropdown.grid(
             row=1,
             column=1,
@@ -1895,6 +1895,13 @@ class Timer(ttk.Frame):
             name = task['task']
             self.task_names.append(name)
             self.task_id_look_up[name] = task_id
+
+    def update_options(self):
+        self.get_stop_watch_options()
+        self.task_dropdown.configure(values=self.task_names)
+
+        if self.task_choice.get() not in self.task_names:
+            self.task_choice.set("")
 
     def timer(self):
         self.sv.set(
@@ -2147,7 +2154,6 @@ class Schedule(ttk.Frame):
         self.task_name.widget.insert(0, task)
         self.task_name.widget.bind("<Return>", lambda event: self.submit_new_record())
 
-
     def rebuild_task_info(self):
         # Preserve the entered values before destroying the widgets.
         subject = self.subject.get()
@@ -2177,12 +2183,54 @@ class Schedule(ttk.Frame):
         self.day_choice = None
         self.calendar = None
 
-        self.start_date = CalendarField(self.recurrence_frame, "Choose Start Date", 'start_date')
-        self.start_date.pack(side='left', padx=(0, 6),pady=(0, 5))
+        self.include_start_date = tk.BooleanVar(value=False)
+        self.include_end_date = tk.BooleanVar(value=False)
 
-        self.end_date = CalendarField(self.recurrence_frame, "End Date", 'end_date')
-        self.end_date.pack(side='left', padx=(0, 6),pady=(0, 5))
+        # Separate containers keep each checkbox beside its calendar.
+        start_frame = ttk.Frame(self.recurrence_frame)
+        start_frame.pack(side="left", padx=(0, 12))
 
+        end_frame = ttk.Frame(self.recurrence_frame)
+        end_frame.pack(side="left", padx=(0, 12))
+
+        def toggle_start_date():
+            if self.include_start_date.get():
+                self.start_date.pack(side="left")
+            else:
+                self.start_date.pack_forget()
+
+        def toggle_end_date():
+            if self.include_end_date.get():
+                self.end_date.pack(side="left")
+            else:
+                self.end_date.pack_forget()
+
+        self.start_option = ttk.Checkbutton(
+            start_frame,
+            text="Include Start Date?",
+            variable=self.include_start_date,
+            command=toggle_start_date,
+            cursor="hand2",
+        )
+        self.start_option.pack()
+
+        # Hidden until packed by the callback.
+        self.start_date = CalendarField(
+            start_frame, "Choose Start Date", "start_date"
+        )
+
+        self.end_option = ttk.Checkbutton(
+            end_frame,
+            text="Include End Date?",
+            variable=self.include_end_date,
+            command=toggle_end_date,
+            cursor="hand2",
+        )
+        self.end_option.pack()
+
+        self.end_date = CalendarField(
+            end_frame, "End Date", "end_date"
+        )
 
     def create_weekly_fields(self):
         self.calendar = None
@@ -2203,8 +2251,8 @@ class Schedule(ttk.Frame):
 
         elif frequency == "Weekly":
             self.clear_calendars()
-            self.create_daily_fields()
             self.create_weekly_fields()
+            self.create_daily_fields()
 
     def submit_new_record(self):
         try:
@@ -2251,8 +2299,23 @@ class Schedule(ttk.Frame):
 
             else:
                 day = (
-                    self.day_choice.get()
-                    if self.day_choice is not None
+                    self.weekdays.get()
+                    if self.weekdays is not None
+                    else None
+                )
+                print(self.weekdays.get())
+                print(day)
+
+                # Only read dates when their checkboxes are checked.
+                start_date = (
+                    self.start_date.get()
+                    if self.include_start_date.get()
+                    else None
+                )
+
+                end_date = (
+                    self.end_date.get()
+                    if self.include_end_date.get()
                     else None
                 )
 
@@ -2261,6 +2324,8 @@ class Schedule(ttk.Frame):
                     task,
                     frequency,
                     day=day,
+                    start_date=start_date,
+                    end_date=end_date,
                     project_id=project_id,
                 )
 
@@ -2271,7 +2336,7 @@ class Schedule(ttk.Frame):
 
         finally:
             self.tasks.check_for_new_records()
-            self.parent.timer.get_stop_watch_options()
+            self.parent.timer.update_options()
 
 class Visuals(ttk.Frame):
     def __init__(self, notebook, parent):
